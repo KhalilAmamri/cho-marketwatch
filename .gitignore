@@ -77,3 +77,6 @@ Thumbs.db
 .coverage
 htmlcov/
 .tox/
+
+saved_notes/
+plans/main_project_plan.excalidraw
