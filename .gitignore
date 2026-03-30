@@ -62,7 +62,7 @@ scraped_data/
 temp/
 temp_*
 cache/
-*.csv
+# *.csv
 *.xlsx
 !requirements.txt
 
@@ -79,4 +79,4 @@ htmlcov/
 .tox/
 
 saved_notes/
-plans/main_project_plan.excalidraw
+# plans/main_project_plan.excalidraw
