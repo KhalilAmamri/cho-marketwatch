@@ -1,0 +1,197 @@
+@startuml cho_marketwatch_database
+
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam nodesep 100
+skinparam ranksep 80
+
+skinparam class {
+    BackgroundColor #FFFDE7
+    BorderColor #333333
+    ArrowColor #555555
+    FontSize 12
+}
+
+!define TABLE(name) class name << (T,#FFAAAA) >>
+
+' ── LEFT COLUMN: Brand hierarchy ──
+
+TABLE(brands) {
+    **PK id** : SERIAL
+    --
+    brand_name : VARCHAR(100) UNIQUE NOT NULL
+    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+}
+
+TABLE(categories) {
+    **PK id** : SERIAL
+    --
+    category_name : VARCHAR(100) UNIQUE NOT NULL
+    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+}
+
+TABLE(ranges) {
+    **PK id** : SERIAL
+    --
+    range_name : VARCHAR(100) UNIQUE NOT NULL
+    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+}
+
+TABLE(products) {
+    **PK id** : SERIAL
+    --
+    FK brand_id : INTEGER NOT NULL
+    FK category_id : INTEGER NOT NULL
+    FK range_id : INTEGER NOT NULL
+    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    UNIQUE(brand_id, category_id, range_id)
+}
+
+TABLE(product_formats) {
+    **PK id** : SERIAL
+    --
+    FK product_id : INTEGER NOT NULL
+    format : VARCHAR(50) NOT NULL
+    packaging : VARCHAR(50) NOT NULL
+    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    UNIQUE(product_id, format, packaging)
+}
+
+' ── CENTER COLUMN: Tracking & Scraping ──
+
+TABLE(product_urls) {
+    **PK id** : SERIAL
+    --
+    FK website_id : INTEGER NOT NULL
+    FK product_format_id : INTEGER NOT NULL
+    FK store_id : INTEGER [nullable]
+    url : VARCHAR(1000) NOT NULL
+    is_active : BOOLEAN DEFAULT TRUE
+    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    UNIQUE(website_id, product_format_id, store_id)
+}
+
+TABLE(raw_staging) {
+    **PK id** : SERIAL
+    --
+    FK product_url_id : INTEGER NOT NULL
+    payload : TEXT NOT NULL
+    status : VARCHAR(20) CHECK[pending|processed|failed] DEFAULT pending
+    http_status_code : INTEGER
+    error_message : TEXT
+    screenshot_path : TEXT
+    scraped_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    processed_at : TIMESTAMP
+}
+
+TABLE(scraped_prices) {
+    **PK id** : SERIAL
+    --
+    FK raw_staging_id : INTEGER UNIQUE [nullable]
+    FK product_format_id : INTEGER NOT NULL
+    FK website_id : INTEGER NOT NULL
+    FK store_id : INTEGER [nullable]
+    price : DECIMAL(10,2) CHECK[>0] NOT NULL
+    currency : VARCHAR(10) NOT NULL
+    screenshot_path : TEXT
+    observed_at : TIMESTAMP NOT NULL
+    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+}
+
+TABLE(weekly_price_summary) {
+    **PK id** : SERIAL
+    --
+    FK product_format_id : INTEGER NOT NULL
+    FK website_id : INTEGER NOT NULL
+    FK store_id : INTEGER [nullable]
+    week_start : DATE NOT NULL
+    avg_price : DECIMAL(10,2) CHECK[>0] NOT NULL
+    sample_count : INTEGER CHECK[>0] NOT NULL
+    currency : VARCHAR(10) NOT NULL
+    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    UNIQUE INDEX(product_format_id, website_id, COALESCE(store_id,0), week_start)
+}
+
+' ── RIGHT COLUMN: Websites & Stores ──
+
+TABLE(websites) {
+    **PK id** : SERIAL
+    --
+    site_name : VARCHAR(100) UNIQUE NOT NULL
+    base_url : VARCHAR(500) NOT NULL
+    country : VARCHAR(50)
+    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+}
+
+TABLE(stores) {
+    **PK id** : SERIAL
+    --
+    FK website_id : INTEGER NOT NULL
+    store_code : VARCHAR(50) NOT NULL
+    store_name : VARCHAR(200)
+    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    UNIQUE(website_id, store_code)
+}
+
+TABLE(exchange_rates) {
+    **PK id** : SERIAL
+    --
+    currency : VARCHAR(10) NOT NULL
+    date : DATE NOT NULL
+    rate_to_eur : FLOAT NOT NULL
+    UNIQUE(currency, date)
+}
+
+TABLE(users) {
+    **PK id** : SERIAL
+    --
+    username : VARCHAR(100) UNIQUE NOT NULL
+    password_hash : VARCHAR(255) NOT NULL
+    full_name : VARCHAR(200)
+    role : VARCHAR(20) CHECK[admin|user] DEFAULT user
+    is_active : BOOLEAN DEFAULT TRUE
+    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    last_login : TIMESTAMP
+}
+
+
+' ── Layout ──
+
+brands           -[hidden]down- categories
+categories       -[hidden]down- products
+products         -[hidden]down- product_formats
+product_formats  -[hidden]right- product_urls
+product_urls     -[hidden]down-  raw_staging
+raw_staging      -[hidden]down-  scraped_prices
+scraped_prices   -[hidden]down-  weekly_price_summary
+product_urls     -[hidden]right- websites
+websites         -[hidden]down-  stores
+stores           -[hidden]down-  exchange_rates
+exchange_rates   -[hidden]down-  users
+
+' ── Relationships ──
+
+brands        "1"    -down-  "0..*" products
+categories    "1"    -down-  "0..*" products
+products      "1"    -down-  "0..*" product_formats
+ranges        "1"    -down-  "0..*" products
+product_formats "1"  -right- "0..*" product_urls
+product_formats "1"  -right- "0..*" scraped_prices
+product_formats "1"  -right- "0..*" weekly_price_summary
+product_urls  "1"    -down-  "0..*" raw_staging
+raw_staging   "0..1" -down-  "0..1" scraped_prices
+product_urls  "0..*" -right- "1"    websites
+scraped_prices "0..*" -right- "1"   websites
+weekly_price_summary "0..*" -right- "1" websites
+product_urls  "0..*" -right- "0..1" stores
+scraped_prices "0..*" -right- "0..1" stores
+weekly_price_summary "0..*" -right- "0..1" stores
+websites      "1"    -down-  "0..*" stores
+
+note right of exchange_rates
+Used for FX conversion by (currency, date) lookup.
+No direct FK from weekly_price_summary/scraped_prices.
+end note
+
+@enduml

@@ -10,5 +10,9 @@ SCRAPING_CONFIG = {
     "delay_between_requests": 5,
     "delay_between_websites": 10,
     "max_retries": 2,
-    "headless": True,
+    "headless": False,
+    "save_screenshots": True,
+    "screenshot_dir": "storage/screenshots",
+    "screenshot_full_page": True,
+    "screenshot_wait_ms": 700,
 }

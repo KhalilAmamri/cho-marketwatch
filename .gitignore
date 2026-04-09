@@ -59,6 +59,8 @@ logs/
 
 # Project specific
 scraped_data/
+# storage/screenshots/
+# assets/screenshots/
 temp/
 temp_*
 cache/
