@@ -1,5 +1,4 @@
 import json
-import re
 from bs4 import BeautifulSoup
 
 def parse_ica_price(html):

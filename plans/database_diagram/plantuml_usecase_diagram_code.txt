@@ -1,0 +1,46 @@
+@startuml CHO_MarketWatch_UseCase_Simple
+left to right direction
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+actor "User" as User
+actor "Admin" as Admin
+actor "Scheduler Service\n(Automatic Trigger)" as Scheduler
+
+Admin --|> User
+
+rectangle "CHO MarketWatch System" {
+  usecase "Login" as UC_Login
+
+  usecase "View Latest Prices" as UC_Latest
+  usecase "Compare Store Prices" as UC_Compare
+  usecase "View Price Trends" as UC_Trends
+  usecase "View Price Forecast" as UC_Forecast
+  usecase "View Scraping Alerts" as UC_Alerts
+
+  usecase "Manage Products and URLs" as UC_ManageProducts
+  usecase "Manage User Accounts" as UC_ManageUsers
+
+  usecase "Run Scheduled Pipeline" as UC_Pipeline
+  usecase "Update Exchange Rates" as UC_UpdateFX
+  usecase "Scrape Website Prices" as UC_Scrape
+  usecase "Process Data and Refresh Weekly Summary" as UC_Process
+}
+
+User --> UC_Login
+User --> UC_Latest
+User --> UC_Compare
+User --> UC_Trends
+User --> UC_Forecast
+User --> UC_Alerts
+
+Admin --> UC_ManageProducts
+Admin --> UC_ManageUsers
+
+Scheduler --> UC_Pipeline
+UC_Pipeline .> UC_UpdateFX : <<include>>
+UC_Pipeline .> UC_Scrape : <<include>>
+UC_Pipeline .> UC_Process : <<include>>
+
+
+@enduml
