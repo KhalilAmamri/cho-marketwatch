@@ -18,7 +18,7 @@ if __name__ == "__main__":
     print("\n🔄 Starting ETL Processing...")
     run_etl()
 
-    print("\n🔄 Generating AI Forecasts (Random Forest)...")
+    print("\n🔄 Generating Forecasts (Random Forest Model)...")
     run_random_forest_forecasts(horizon_weeks=3)
 
     print("\n" + "=" * 60)
