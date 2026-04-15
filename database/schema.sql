@@ -28,8 +28,9 @@ CREATE TABLE ranges (
 CREATE TABLE websites (
     id         SERIAL PRIMARY KEY,
     site_name  VARCHAR(100) NOT NULL UNIQUE,
-    base_url   VARCHAR(500) NOT NULL,
-    country    VARCHAR(50),
+    base_url   VARCHAR(500) NOT NULL CHECK (BTRIM(base_url) <> ''),
+    country    VARCHAR(50) NOT NULL CHECK (BTRIM(country) <> ''),
+    scraper_status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (scraper_status IN ('pending', 'active')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -126,7 +127,22 @@ CREATE TABLE exchange_rates (
     UNIQUE(currency, date)
 );
 
--- 13. USERS
+-- 13. PRICE FORECASTS (persisted ML predictions)
+CREATE TABLE price_forecasts (
+    id                SERIAL PRIMARY KEY,
+    product_format_id INTEGER        NOT NULL REFERENCES product_formats(id) ON DELETE CASCADE,
+    website_id        INTEGER        NOT NULL REFERENCES websites(id)        ON DELETE CASCADE,
+    store_id          INTEGER                 REFERENCES stores(id)          ON DELETE CASCADE,
+    forecast_date     DATE           NOT NULL,
+    predicted_price   DECIMAL(10, 2) NOT NULL CHECK (predicted_price >= 0),
+    price_low         DECIMAL(10, 2)          CHECK (price_low >= 0),
+    price_high        DECIMAL(10, 2)          CHECK (price_high >= 0),
+    confidence_level  VARCHAR(20),
+    training_points   INTEGER,
+    created_at        TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 14. USERS
 CREATE TABLE users (
     id            SERIAL PRIMARY KEY,
     username      VARCHAR(100) NOT NULL UNIQUE,
@@ -167,6 +183,11 @@ CREATE INDEX idx_weekly_summary_website      ON weekly_price_summary(website_id)
 CREATE INDEX idx_weekly_summary_store        ON weekly_price_summary(store_id);
 CREATE UNIQUE INDEX idx_weekly_summary_unique
     ON weekly_price_summary(product_format_id, website_id, COALESCE(store_id, 0), week_start);
+
+CREATE INDEX idx_price_forecasts_product_store_date
+    ON price_forecasts(product_format_id, website_id, store_id, forecast_date DESC);
+CREATE UNIQUE INDEX idx_price_forecasts_unique
+    ON price_forecasts(product_format_id, website_id, COALESCE(store_id, 0), forecast_date);
 
 CREATE INDEX idx_product_urls_website     ON product_urls(website_id, product_format_id);
 CREATE INDEX idx_product_urls_store       ON product_urls(store_id);

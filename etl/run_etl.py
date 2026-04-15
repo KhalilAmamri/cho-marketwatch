@@ -6,11 +6,11 @@ from etl.parsers.kesko import parse_kesko_price
 from etl.parsers.sok import parse_sok_price
 
 PARSERS = {
-    "Citygross": parse_citygross_price,
-    "Coop":      parse_coop_price,
-    "Ica":       parse_ica_price,
-    "Kesko":     parse_kesko_price,
-    "Sok":       parse_sok_price,
+    "citygross": parse_citygross_price,
+    "coop":      parse_coop_price,
+    "ica":       parse_ica_price,
+    "kesko":     parse_kesko_price,
+    "sok":       parse_sok_price,
 
 }
 
@@ -139,7 +139,7 @@ def run_etl():
             for row in rows:
                 raw_id, website_id, store_id, product_format_id, payload, scraped_at, week_start, site_name, screenshot_path = row
 
-                parser = PARSERS.get(site_name)
+                parser = PARSERS.get((site_name or "").strip().lower())
                 if not parser:
                     cursor.execute(
                         "UPDATE raw_staging SET status = 'failed', error_message = %s WHERE id = %s",

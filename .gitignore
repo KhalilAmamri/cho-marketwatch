@@ -31,6 +31,13 @@ ENV/
 env/
 .virtualenv/
 
+# Node.js / Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+!frontend/src/lib/
+!frontend/src/lib/**
+
 # IDE
 .vscode/
 .idea/
@@ -80,5 +87,9 @@ Thumbs.db
 htmlcov/
 .tox/
 
-saved_notes/
+# saved_notes/
 # plans/main_project_plan.excalidraw
+
+# ignore the folder plans and the folder reports
+reports/
+plans/

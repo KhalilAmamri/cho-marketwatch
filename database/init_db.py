@@ -27,6 +27,15 @@ CSV_HISTORICAL_FX_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "data", "historical_fx.csv")
 )
 
+# Websites with implemented scrapers should be active after seeding.
+SUPPORTED_SCRAPER_WEBSITES = {
+    "citygross",
+    "coop",
+    "ica",
+    "kesko",
+    "sok",
+}
+
 
 # =============================================================================
 # CSV
@@ -92,6 +101,13 @@ def _parse_rate_to_eur(value):
         return None
 
 
+def _seed_scraper_status(site_name):
+    normalized = str(site_name or "").strip().lower()
+    if normalized in SUPPORTED_SCRAPER_WEBSITES:
+        return "active"
+    return "pending"
+
+
 # =============================================================================
 # INSERT FUNCTIONS
 # =============================================================================
@@ -107,19 +123,41 @@ def insert_websites(cursor, rows):
         if not site_name or site_name in seen:
             continue
 
+        if not country:
+            print(f"  ! Skipped website {site_name}: missing country")
+            continue
+
         parsed   = urlparse(url)
-        base_url = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme else ""
+        base_url = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
+        if not base_url:
+            print(f"  ! Skipped website {site_name}: missing or invalid base URL")
+            continue
+
+        scraper_status = _seed_scraper_status(site_name)
         seen[site_name] = True
 
-        cursor.execute("SELECT id FROM websites WHERE site_name = %s", (site_name,))
-        if cursor.fetchone():
+        cursor.execute("SELECT id, base_url, country, scraper_status FROM websites WHERE site_name = %s", (site_name,))
+        existing = cursor.fetchone()
+        if existing:
+            website_id, current_base_url, current_country, current_status = existing
+            if (
+                current_status != scraper_status
+                or (current_base_url or "") != base_url
+                or (current_country or "") != country
+            ):
+                cursor.execute(
+                    "UPDATE websites SET base_url = %s, country = %s, scraper_status = %s WHERE id = %s",
+                    (base_url, country, scraper_status, website_id),
+                )
+                print(f"  ✓ Updated website: {site_name} ({scraper_status})")
+                continue
             print(f"  ✓ {site_name} already exists")
         else:
             cursor.execute(
-                "INSERT INTO websites (site_name, base_url, country) VALUES (%s, %s, %s)",
-                (site_name, base_url, country)
+                "INSERT INTO websites (site_name, base_url, country, scraper_status) VALUES (%s, %s, %s, %s)",
+                (site_name, base_url, country, scraper_status)
             )
-            print(f"  ✓ Inserted website: {site_name}")
+            print(f"  ✓ Inserted website: {site_name} ({scraper_status})")
 
 
 def insert_brands(cursor, rows):
