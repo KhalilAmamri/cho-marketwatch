@@ -93,3 +93,7 @@ htmlcov/
 # ignore the folder plans and the folder reports
 reports/
 plans/
+
+# Vite
+frontend/.vite/
+frontend/vite/deps/
