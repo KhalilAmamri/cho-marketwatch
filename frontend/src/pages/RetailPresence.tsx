@@ -1,16 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
-import type { MouseEvent as ReactMouseEvent } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/PageHeader";
-import { MetricCard } from "@/components/MetricCard";
 import {
   getRetailPresence,
+  getRetailPresenceCountryMetrics,
   RetailPresenceCell,
   RetailPresenceStatus,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { RetailPresenceWorldMap } from "@/components/RetailPresenceWorldMap";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -18,6 +19,7 @@ import {
   Search,
   LayoutGrid,
   AlertTriangle,
+  X,
 } from "lucide-react";
 
 const STATUS_LABEL: Record<RetailPresenceStatus, string> = {
@@ -25,32 +27,6 @@ const STATUS_LABEL: Record<RetailPresenceStatus, string> = {
   partial: "Partial",
   none: "Missing",
 };
-
-const GEO_COUNTRIES = [
-  {
-    key: "sweden",
-    label: "Sweden",
-    isoCode: "SE",
-    tooltipSide: "right",
-    // Simplified from real-world boundaries (WGS84), projected and fitted to this viewBox.
-    path: "M140.50,67.84 L129.33,75.72 L131.13,82.47 L90.56,100.08 L82.17,114.22 L101.39,126.33 L90.81,136.80 L78.83,138.93 L74.43,153.79 L67.89,161.79 L53.92,160.98 L47.40,167.62 L34.06,168.00 L30.40,160.08 L12.00,137.69 L26.66,125.99 L30.47,114.68 L23.11,109.68 L22.40,96.16 L29.88,86.23 L41.31,86.41 L45.32,82.12 L41.12,78.37 L59.01,62.40 L78.13,40.38 L89.20,40.42 L92.24,33.34 L113.95,35.39 L115.64,26.85 L122.79,26.31 L156.12,41.36 L156.43,60.04 L160.31,64.58 Z M81.51,150.79 L83.22,151.31 L74.23,161.16 L73.47,157.95 Z M107.96,145.75 L96.00,154.77 L93.53,155.09 L94.48,153.20 L93.15,151.83 L94.10,150.72 L93.40,149.40 L108.15,145.42 Z M125.10,88.83 L126.56,89.98 L123.36,91.30 L124.56,89.29 Z",
-    labelX: 84,
-    labelY: 98,
-  },
-  {
-    key: "finland",
-    label: "Finland",
-    isoCode: "FI",
-    tooltipSide: "left",
-    path: "M214.32,26.86 L212.64,35.94 L230.28,44.32 L219.65,53.52 L233.04,66.89 L225.29,76.58 L235.66,84.74 L230.95,91.70 L248.00,98.86 L243.67,104.07 L208.31,122.33 L148.41,128.55 L130.58,120.25 L133.15,110.62 L127.55,101.53 L143.49,88.89 L177.53,74.76 L176.33,70.00 L160.31,64.58 L156.43,60.04 L156.12,41.36 L122.79,26.31 L129.69,22.80 L142.49,29.78 L169.90,32.28 L180.88,26.50 L186.53,16.66 L204.42,12.00 L219.20,17.46 Z",
-    labelX: 196,
-    labelY: 88,
-  },
-] as const;
-
-function normalizeCountryKey(country?: string): string {
-  return String(country || "").trim().toLowerCase();
-}
 
 function getStatusBadgeClass(status: RetailPresenceStatus): string {
   if (status === "all_present") {
@@ -85,197 +61,25 @@ function buildProductLabel(familyLabel: string, formatLabel: string): string {
   return `${family} ${format}`.trim();
 }
 
-function CountrySelectorMap({
-  countries,
-  countryRetailers,
-  selectedCountry,
-  onSelect,
-}: {
-  countries: string[];
-  countryRetailers: Record<string, string[]>;
-  selectedCountry?: string;
-  onSelect: (country: string) => void;
-}) {
-  const [tooltip, setTooltip] = useState<{ countryKey: string; xPct: number; yPct: number } | null>(null);
-  const selectedKey = normalizeCountryKey(selectedCountry);
-  const countryMap = new Map(countries.map((country) => [normalizeCountryKey(country), country]));
-  const unsupportedCountries = countries.filter(
-    (country) => !GEO_COUNTRIES.some((geoCountry) => geoCountry.key === normalizeCountryKey(country)),
-  );
-  const retailersByCountryKey = useMemo(() => {
-    const grouped = new Map<string, string[]>();
-
-    for (const [country, retailers] of Object.entries(countryRetailers || {})) {
-      grouped.set(normalizeCountryKey(country), retailers || []);
-    }
-
-    return grouped;
-  }, [countryRetailers]);
-  const hoveredCountry = tooltip ? GEO_COUNTRIES.find((country) => country.key === tooltip.countryKey) : undefined;
-  const hoveredRetailers = tooltip ? (retailersByCountryKey.get(tooltip.countryKey) || []) : [];
-
-  function updateTooltipFromEvent(event: ReactMouseEvent<SVGGElement>, countryKey: string) {
-    const svg = event.currentTarget.ownerSVGElement;
-    if (!svg) return;
-
-    const rect = svg.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-
-    const xPct = ((event.clientX - rect.left) / rect.width) * 100;
-    const yPct = ((event.clientY - rect.top) / rect.height) * 100;
-    setTooltip({
-      countryKey,
-      xPct: Math.max(8, Math.min(92, xPct)),
-      yPct: Math.max(8, Math.min(92, yPct)),
-    });
-  }
-
-  return (
-    <div className="glass-card rounded-2xl p-4 mb-6">
-      <div className="flex flex-col gap-1 mb-3">
-        <p className="text-[10px] uppercase tracking-[0.15em] font-bold text-muted-foreground">Geo Scope</p>
-        <p className="text-sm text-muted-foreground">Click Sweden or Finland on the mini-map to filter the matrix instantly. Hover to preview retailers.</p>
-      </div>
-
-      <div className="rounded-2xl border border-border/50 gradient-mesh p-4">
-        <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4 items-start">
-          <div className="relative rounded-xl border border-border/50 bg-background/70 p-3">
-            <svg viewBox="0 0 260 180" className="w-full h-[190px]" onMouseLeave={() => setTooltip(null)}>
-              <rect x="0" y="0" width="260" height="180" rx="16" fill="hsl(var(--background))" opacity="0.45" />
-              {GEO_COUNTRIES.map((geoCountry) => {
-                const country = countryMap.get(geoCountry.key);
-                const isAvailable = Boolean(country);
-                const isSelected = selectedKey === geoCountry.key;
-
-                return (
-                  <g
-                    key={geoCountry.key}
-                    className={cn(isAvailable && "cursor-pointer")}
-                    onMouseEnter={(event) => {
-                      if (!isAvailable) return;
-                      updateTooltipFromEvent(event, geoCountry.key);
-                    }}
-                    onMouseMove={(event) => {
-                      if (!isAvailable) return;
-                      updateTooltipFromEvent(event, geoCountry.key);
-                    }}
-                    onMouseLeave={() => setTooltip((prev) => (prev?.countryKey === geoCountry.key ? null : prev))}
-                    onClick={() => {
-                      if (country) onSelect(country);
-                    }}
-                  >
-                    <path
-                      d={geoCountry.path}
-                      className={cn(
-                        "transition-colors",
-                        isSelected
-                          ? "fill-accent/75 stroke-accent"
-                          : isAvailable
-                            ? "fill-primary/20 stroke-primary/60 hover:fill-primary/35"
-                            : "fill-muted/40 stroke-muted-foreground/30",
-                      )}
-                      strokeWidth="1.5"
-                    />
-                    <text
-                      x={geoCountry.labelX}
-                      y={geoCountry.labelY}
-                      textAnchor="middle"
-                      className={cn(
-                        "text-[10px] font-semibold select-none",
-                        isSelected
-                          ? "fill-accent-foreground"
-                          : isAvailable
-                            ? "fill-foreground"
-                            : "fill-muted-foreground",
-                      )}
-                    >
-                      {geoCountry.label}
-                    </text>
-                  </g>
-                );
-              })}
-            </svg>
-
-            {tooltip && hoveredCountry && (
-              <div
-                className="absolute z-20 pointer-events-none rounded-lg border border-border/60 bg-background/95 px-3 py-2 shadow-xl w-[220px]"
-                style={{
-                  left: `${tooltip.xPct}%`,
-                  top: `${tooltip.yPct}%`,
-                  transform:
-                    hoveredCountry.tooltipSide === "left"
-                      ? "translate(calc(-100% - 12px), -50%)"
-                      : "translate(12px, -50%)",
-                }}
-              >
-                <p className="text-xs font-semibold text-foreground">
-                  {hoveredCountry.label} ({hoveredCountry.isoCode})
-                </p>
-                <p className="text-[10px] uppercase tracking-[0.12em] font-semibold text-muted-foreground mt-1">Retailers</p>
-                <p className="text-xs text-foreground mt-0.5 leading-relaxed">
-                  {hoveredRetailers.length ? hoveredRetailers.join(", ") : "No retailers linked"}
-                </p>
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">
-              Current filter: <span className="font-semibold text-foreground">{selectedCountry || "Not selected"}</span>
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {GEO_COUNTRIES.map((geoCountry) => {
-                const isAvailable = countryMap.has(geoCountry.key);
-                const isSelected = selectedKey === geoCountry.key;
-                return (
-                  <Badge
-                    key={geoCountry.key}
-                    variant="outline"
-                    className={cn(
-                      "rounded-full",
-                      isSelected && "border-primary text-primary bg-primary/10",
-                      !isAvailable && "opacity-50",
-                    )}
-                  >
-                    {geoCountry.label}
-                  </Badge>
-                );
-              })}
-            </div>
-
-            {unsupportedCountries.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                Other countries in dataset: {unsupportedCountries.join(", ")}.
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-
 export default function RetailPresence() {
   const [selectedCountry, setSelectedCountry] = useState<string | undefined>(undefined);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | RetailPresenceStatus>("all");
+
+  const { data: countryMetrics } = useQuery({
+    queryKey: ["retail-presence-country-metrics"],
+    queryFn: () => getRetailPresenceCountryMetrics(),
+  });
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ["retail-presence", selectedCountry || "default"],
     queryFn: () => getRetailPresence(selectedCountry),
   });
 
-  useEffect(() => {
-    if (!selectedCountry && data?.country) {
-      setSelectedCountry(data.country);
-    }
-  }, [data?.country, selectedCountry]);
-
-  const rows = data?.rows || [];
   const websites = data?.websites || [];
 
   const flatRows = useMemo<FlatPresenceRow[]>(() => {
+    const rows = data?.rows || [];
     return rows.flatMap((row) =>
       row.formats.map((formatRow) => ({
         productFormatId: formatRow.productFormatId,
@@ -287,7 +91,7 @@ export default function RetailPresence() {
         cells: formatRow.cells,
       })),
     );
-  }, [rows]);
+  }, [data?.rows]);
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -321,46 +125,101 @@ export default function RetailPresence() {
         subtitle="Map-first retail presence: choose geography first, then review actionable coverage gaps."
       />
 
-      <CountrySelectorMap
-        countries={data?.availableCountries || []}
-        countryRetailers={data?.countryRetailers || {}}
-        selectedCountry={selectedCountry}
-        onSelect={setSelectedCountry}
-      />
+      {/* Map Section - Compact */}
+      <div className="glass-card rounded-2xl p-3 mb-4">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="h-6 w-1 rounded-full bg-[hsl(var(--cho-teal))]" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">Geo Scope</p>
+              <p className="text-[11px] text-muted-foreground">
+                Hover for stats, click to filter • Tracked: <span className="font-semibold text-foreground">{countryMetrics?.length || 0}</span>
+              </p>
+            </div>
+          </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <MetricCard
-          label="Global Presence"
-          value={globalPresenceValue}
-          icon={LayoutGrid}
-          accentColor="teal"
-          trend="neutral"
-          trendValue={globalSignalValue}
-        />
-        <MetricCard
-          label="Actionable Gaps"
-          value={actionableGapValue}
-          icon={AlertTriangle}
-          accentColor="gold"
-          trend="neutral"
-          trendValue={`${actionableProducts} products need attention`}
-        />
+          <div className="flex items-center gap-2">
+            {selectedCountry && (
+              <div className="flex items-center gap-1.5 rounded-lg border border-[hsl(var(--cho-teal))]/30 bg-[hsl(var(--cho-teal))]/0.06 px-2.5 py-1 text-xs">
+                <span className="text-muted-foreground">Filter:</span>
+                <span className="font-medium text-[hsl(var(--cho-teal))]">{selectedCountry}</span>
+                <button
+                  onClick={() => setSelectedCountry(undefined)}
+                  className="ml-1 rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectedCountry(undefined)}
+              disabled={!selectedCountry}
+              className="h-7 rounded-lg text-xs"
+            >
+              <X className="w-3 h-3 mr-1" /> Clear
+            </Button>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border/50 gradient-mesh p-2">
+          <RetailPresenceWorldMap
+            metrics={countryMetrics || []}
+            selectedCountry={selectedCountry}
+            onSelectCountry={setSelectedCountry}
+            className="rounded-lg border border-border/50 bg-background/70"
+          />
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
+            Only countries with tracked websites are clickable.
+          </p>
+        </div>
       </div>
 
-      <div className="glass-card rounded-2xl p-4 mb-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+      {/* KPI Cards */}
+      <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="rounded-xl border border-border/60 bg-background/80 px-4 py-3 transition-shadow hover:shadow-sm border-l-[3px] border-l-[hsl(var(--cho-teal))] bg-gradient-to-r from-[hsl(var(--cho-teal)/0.06)] to-background/80">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[hsl(var(--cho-teal))]">Global Presence</p>
+              <p className="mt-1.5 text-2xl font-bold text-foreground tabular-nums leading-none tracking-tight">{globalPresenceValue}</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">{globalSignalValue}</p>
+            </div>
+            <LayoutGrid className="h-8 w-8 text-[hsl(var(--cho-teal))]/20" />
+          </div>
+        </div>
+        <div className="rounded-xl border border-border/60 bg-background/80 px-4 py-3 transition-shadow hover:shadow-sm border-l-[3px] border-l-[hsl(var(--cho-gold))] bg-gradient-to-r from-[hsl(var(--cho-gold)/0.06)] to-background/80">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[hsl(var(--cho-gold-dark))]">Actionable Gaps</p>
+              <p className="mt-1.5 text-2xl font-bold text-foreground tabular-nums leading-none tracking-tight">{actionableGapValue}</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">{actionableProducts} products need attention</p>
+            </div>
+            <AlertTriangle className="h-8 w-8 text-[hsl(var(--cho-gold))]/20" />
+          </div>
+        </div>
+      </div>
+
+      {/* Search & Filter Bar */}
+      <div className="glass-card rounded-2xl p-3 mb-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2">
+            <div className="h-2 w-2 rounded-full bg-[hsl(var(--cho-gold))]" />
+            <p className="text-xs font-semibold text-foreground">Presence Matrix</p>
+          </div>
+          <div className="mx-2 h-4 w-px bg-border/50" />
+          <div className="relative flex-1 min-w-[200px] max-w-[300px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search product name"
-              className="pl-10 h-10 rounded-xl bg-background/60 border-border/50"
+              placeholder="Search product..."
+              className="pl-9 h-8 rounded-lg text-xs bg-background/65 border-border/55"
             />
           </div>
-
           <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as "all" | RetailPresenceStatus)}>
-            <SelectTrigger className="h-10 rounded-xl bg-background/60 border-border/50">
+            <SelectTrigger className="h-8 w-[150px] rounded-lg text-xs bg-background/65 border-border/55">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -370,18 +229,21 @@ export default function RetailPresence() {
               <SelectItem value="none">Missing</SelectItem>
             </SelectContent>
           </Select>
-
-          <div className="text-xs text-muted-foreground md:text-right">
-            One row = one product format. Columns show if each store has that exact product.
-          </div>
+          <p className="text-[11px] text-muted-foreground ml-auto">
+            {filteredRows.length} products • {websites.length} stores
+          </p>
         </div>
       </div>
 
+      {/* Presence Matrix Table */}
       <div className="glass-card rounded-2xl overflow-hidden">
-        <div className="p-4 border-b border-border/50 flex items-center justify-between">
-          <h3 className="text-sm uppercase tracking-wider font-bold text-muted-foreground">Presence Matrix</h3>
-          <p className="text-xs text-muted-foreground">
-            {filteredRows.length} products • {websites.length} stores • {filteredMatrixCells} matrix cells {isFetching ? "• refreshing" : ""}
+        <div className="px-4 py-2.5 border-b border-border/50 flex items-center justify-between bg-muted/20">
+          <div className="flex items-center gap-2">
+            <div className="h-2 w-2 rounded-full bg-[hsl(var(--cho-teal))]" />
+            <h3 className="text-xs font-semibold text-foreground">Product Availability</h3>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            {filteredMatrixCells} cells {isFetching ? "• refreshing" : ""}
           </p>
         </div>
 

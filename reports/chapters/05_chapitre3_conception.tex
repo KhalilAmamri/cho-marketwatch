@@ -1,0 +1,94 @@
+\chapter{Conception et architecture du systeme}
+
+\section{Vue d'ensemble de l'architecture}
+La conception de \ProjectName{} suit une architecture en couches afin d'assurer separation des responsabilites et maintenabilite :
+\begin{enumerate}[leftmargin=1.2cm]
+	\item couche \textbf{collecte} (scrapers multi-sites) ;
+	\item couche \textbf{traitement} (ETL + normalisation) ;
+	\item couche \textbf{donnees} (PostgreSQL) ;
+	\item couche \textbf{services} (FastAPI) ;
+	\item couche \textbf{presentation} (React dashboard).
+\end{enumerate}
+
+\figureplaceholder{Diagramme d'architecture logique en 5 couches}{Architecture globale de \ProjectName}
+
+\section{Conception de la base de donnees}
+Le schema relationnel est structure autour de trois familles de tables.
+
+\subsection{Tables de reference}
+Les tables \texttt{brands}, \texttt{categories}, \texttt{ranges}, \texttt{products}, \texttt{product\_formats}, \texttt{websites} et \texttt{stores} decrivent le catalogue et le perimetre commercial.
+
+\subsection{Tables operationnelles}
+Les tables \texttt{product\_urls}, \texttt{raw\_staging}, \texttt{scraped\_prices} portent les flux de collecte bruts et traces.
+
+\subsection{Tables analytiques}
+Les tables \texttt{weekly\_price\_summary} et \texttt{exchange\_rates} alimentent les vues de comparaison et de tendance.
+
+\subsection{Table de securite}
+La table \texttt{users} gere les comptes applicatifs, les roles, l'activation des comptes et la date de derniere connexion.
+
+\figureplaceholder{ERD relationnel avec cardinalites et contraintes principales}{Modele relationnel de la plateforme}
+
+\section{Regles d'integrite et qualite des donnees}
+Plusieurs regles structurantes ont ete integrees :
+\begin{itemize}[leftmargin=1.2cm]
+	\item unicite des combinaisons produit (brand, category, range) ;
+	\item unicite des variantes (product, format, packaging) ;
+	\item unicite des URLs actives par couple (site, produit, magasin) ;
+	\item exclusion des prix non valides (prix <= 0) ;
+	\item indexation des tables volumineuses pour accelerer les consultations.
+\end{itemize}
+
+\section{Conception des services API}
+Les routes sont regroupees par domaine fonctionnel.
+
+\begin{longtable}{p{2.7cm}p{2.0cm}p{8.4cm}}
+\caption{Synthese des endpoints principaux}\label{tab:endpoints}\\
+\toprule
+\textbf{Module} & \textbf{Methode} & \textbf{Endpoint principal} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Module} & \textbf{Methode} & \textbf{Endpoint principal} \\
+\midrule
+\endhead
+Auth & POST & /auth/login (authentification) \\
+Auth & GET & /auth/me (profil courant) \\
+Prices & GET & /prices/kpis, /prices/filters, /prices/summary, /prices/timeseries \\
+Operations & GET & /operations/visibility (supervision scraping) \\
+Retail Presence & GET & /retail-presence (matrice de couverture) \\
+Admin & GET/POST/PUT/DELETE & /admin/product-formats, /admin/product-urls, /admin/users \\
+Admin & POST & /admin/lookups/brands, /admin/lookups/categories, /admin/lookups/ranges \\
+\bottomrule
+\end{longtable}
+
+\section{Conception securite et gestion des roles}
+Le systeme d'authentification suit une logique token \texttt{Bearer} :
+\begin{itemize}[leftmargin=1.2cm]
+	\item verification du mot de passe hashé (bcrypt) ;
+	\item generation d'un token signe (HS256) ;
+	\item validation du token sur les routes protegees ;
+	\item controle de privilege pour les routes d'administration.
+\end{itemize}
+
+Deux profils sont definis :
+\begin{itemize}[leftmargin=1.2cm]
+	\item \textbf{admin} : acces complet y compris administration et supervision ;
+	\item \textbf{user} : acces lecture aux pages analytiques.
+\end{itemize}
+
+\section{Conception frontale et experience utilisateur}
+L'interface est organisee en deux blocs de navigation :
+\begin{itemize}[leftmargin=1.2cm]
+	\item \textbf{Analytics} : Prices Explorer, Price Trends, Store Comparison.
+	\item \textbf{Admin} : Products \& Catalog, URLs, Retail Presence, Operational Visibility, Users.
+\end{itemize}
+
+Cette separation ameliore la lisibilite des usages et limite les erreurs de manipulation pour les profils non administrateurs.
+
+\figureplaceholder{Wireframe de navigation sidebar et routage par role}{Conception UX et parcours utilisateur}
+
+\section{Conclusion}
+La conception proposee offre un cadre solide pour relier les besoins metier a une implementation technique claire. Elle facilite les evolutions futures, notamment l'ajout de nouvelles sources, de nouveaux indicateurs et de nouvelles vues analytiques.
+
+\clearpage

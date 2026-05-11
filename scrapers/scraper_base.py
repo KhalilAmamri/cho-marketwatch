@@ -83,15 +83,24 @@ def _dismiss_overlays(page, cookie_selectors=None, ad_selectors=None, max_rounds
                 page.wait_for_timeout(350)
 
 
-def scrape_products(website_name, prepare_page=None, cookie_selectors=None, ad_selectors=None):
+def scrape_products(
+    website_name,
+    prepare_page=None,
+    cookie_selectors=None,
+    ad_selectors=None,
+    product_url_id=None,
+    headless_override=None,
+):
     delay       = SCRAPING_CONFIG.get("delay_between_requests", 10)
     timeout     = SCRAPING_CONFIG.get("timeout", 30) * 1000
     max_retries = SCRAPING_CONFIG.get("max_retries", 2)
-    headless    = SCRAPING_CONFIG.get("headless", True)
+    configured_headless = SCRAPING_CONFIG.get("headless", True)
+    headless = configured_headless if headless_override is None else bool(headless_override)
     save_screenshots = SCRAPING_CONFIG.get("save_screenshots", True)
     screenshot_full_page = SCRAPING_CONFIG.get("screenshot_full_page", True)
     screenshot_wait_ms = int(SCRAPING_CONFIG.get("screenshot_wait_ms", 700))
     screenshot_dir_cfg = SCRAPING_CONFIG.get("screenshot_dir", "storage/screenshots")
+    operation_results = []
 
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     screenshot_root = os.path.join(project_root, screenshot_dir_cfg)
@@ -116,17 +125,33 @@ def scrape_products(website_name, prepare_page=None, cookie_selectors=None, ad_s
         with get_connection() as conn:
             with conn.cursor() as cursor:
 
-                urls = get_product_urls(cursor, website_name)
+                urls = get_product_urls(cursor, website_name, product_url_id=product_url_id)
                 if not urls:
-                    print(f"⚠️  No active URLs found for '{website_name}'.")
-                    return
+                    if product_url_id is not None:
+                        print(f"⚠️  No active URL found for '{website_name}' with product_url_id={product_url_id}.")
+                    else:
+                        print(f"⚠️  No active URLs found for '{website_name}'.")
+                    return operation_results
 
-                for product_url_id, _product_format_id, brand_name, category, range_name, fmt, packaging, url, _store_id, store_code in urls:
+                for url_index, url_row in enumerate(urls):
+                    product_url_id, _product_variant_id, brand_name, category, range_name, fmt, packaging, url, _store_id, store_code = url_row
                     store_tag     = f" (store {store_code})" if store_code else ""
                     range_tag     = f" {range_name}" if range_name else ""
                     product_label = f"{brand_name} {category}{range_tag} {fmt} {packaging}{store_tag}"
                     print(f"\n🔍 Scraping: {product_label}")
                     print(f"   URL: {url}")
+
+                    item_result = {
+                        "product_url_id": int(product_url_id),
+                        "website_name": str(website_name),
+                        "product_label": product_label,
+                        "url": str(url),
+                        "status": "failed",
+                        "http_status_code": None,
+                        "error_message": None,
+                        "screenshot_path": None,
+                        "raw_staging_id": None,
+                    }
 
                     context = browser.new_context(
                         user_agent=SCRAPING_CONFIG["user_agent"],
@@ -167,7 +192,7 @@ def scrape_products(website_name, prepare_page=None, cookie_selectors=None, ad_s
                             html        = page.content()
                             status_code = response.status if response else 200
 
-                            insert_raw_staging(
+                            inserted_raw_id = insert_raw_staging(
                                 cursor,
                                 product_url_id,
                                 html,
@@ -177,6 +202,11 @@ def scrape_products(website_name, prepare_page=None, cookie_selectors=None, ad_s
                                 screenshot_path=screenshot_path,
                             )
                             conn.commit()
+                            item_result["status"] = "pending"
+                            item_result["http_status_code"] = status_code
+                            item_result["error_message"] = None
+                            item_result["screenshot_path"] = screenshot_path
+                            item_result["raw_staging_id"] = inserted_raw_id
                             print(f"   ✅ Success! Status: {status_code}")
                             if screenshot_path:
                                 print(f"   📸 Screenshot saved: {screenshot_path}")
@@ -193,7 +223,7 @@ def scrape_products(website_name, prepare_page=None, cookie_selectors=None, ad_s
                     context.close()
 
                     if not success:
-                        insert_raw_staging(
+                        inserted_raw_id = insert_raw_staging(
                             cursor,
                             product_url_id,
                             "",
@@ -203,10 +233,19 @@ def scrape_products(website_name, prepare_page=None, cookie_selectors=None, ad_s
                             screenshot_path=screenshot_path,
                         )
                         conn.commit()
+                        item_result["status"] = "failed"
+                        item_result["http_status_code"] = None
+                        item_result["error_message"] = last_error
+                        item_result["screenshot_path"] = screenshot_path
+                        item_result["raw_staging_id"] = inserted_raw_id
                         print("   ❌ All attempts failed.")
 
-                    wait_time = delay + random.uniform(-2, 3)
-                    print(f"   ⏱️  Waiting {wait_time:.1f}s before next product...")
-                    time.sleep(wait_time)
+                    operation_results.append(item_result)
+
+                    if url_index < len(urls) - 1:
+                        wait_time = delay + random.uniform(-2, 3)
+                        print(f"   ⏱️  Waiting {wait_time:.1f}s before next product...")
+                        time.sleep(wait_time)
 
         browser.close()
+    return operation_results

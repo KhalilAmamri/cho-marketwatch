@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
+import pycountry
+
 from app.core.security import require_admin_user
 from app.schemas.admin import (
     AdminLookupsResponse,
+    FormatCreate,
     NamedLookup,
     NamedLookupCreate,
     WebsiteCreate,
@@ -26,6 +29,8 @@ from app.schemas.admin import (
 from app.services.admin_service import (
     create_brand,
     create_category,
+    create_format,
+    create_packaging,
     create_website,
     create_store,
     create_product_format,
@@ -166,6 +171,24 @@ def admin_create_range(payload: NamedLookupCreate, current_user: dict = Depends(
         _to_http_error(exc)
 
 
+@router.post("/lookups/formats", response_model=NamedLookup, status_code=status.HTTP_201_CREATED)
+def admin_create_format(payload: FormatCreate, current_user: dict = Depends(require_admin_user)):
+    del current_user
+    try:
+        return create_format(payload.model_dump())
+    except Exception as exc:  # noqa: BLE001
+        _to_http_error(exc)
+
+
+@router.post("/lookups/packagings", response_model=NamedLookup, status_code=status.HTTP_201_CREATED)
+def admin_create_packaging(payload: NamedLookupCreate, current_user: dict = Depends(require_admin_user)):
+    del current_user
+    try:
+        return create_packaging(payload.name)
+    except Exception as exc:  # noqa: BLE001
+        _to_http_error(exc)
+
+
 @router.get("/product-formats", response_model=list[ProductFormatRow])
 def admin_product_formats(current_user: dict = Depends(require_admin_user)):
     del current_user
@@ -297,3 +320,13 @@ def admin_delete_user(user_id: int, current_user: dict = Depends(require_admin_u
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as exc:  # noqa: BLE001
         _to_http_error(exc)
+
+
+@router.get("/countries", response_model=list[dict[str, str]])
+def admin_countries(current_user: dict = Depends(require_admin_user)):
+    del current_user
+    countries = [
+        {"name": country.name, "alpha2": country.alpha_2, "alpha3": country.alpha_3}
+        for country in sorted(pycountry.countries, key=lambda c: c.name)
+    ]
+    return countries

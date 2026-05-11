@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { TrendingUp, BarChart3, Sparkles, ShieldCheck, ArrowRight } from "lucide-react";
+import { TrendingUp, BarChart3, ShieldCheck, RefreshCw, ArrowRight } from "lucide-react";
 import choLogo from "@/assets/cho-group-logo.png";
 
 export function LoginPage() {
@@ -23,10 +23,30 @@ export function LoginPage() {
   };
 
   const features = [
-    { icon: TrendingUp, text: "Real-time retail price tracking", color: "from-primary/20 to-primary/5" },
-    { icon: BarChart3, text: "Cross-store price comparisons", color: "from-accent/20 to-accent/5" },
-    { icon: Sparkles, text: "AI-powered price forecasting", color: "from-primary/20 to-primary/5" },
-    { icon: ShieldCheck, text: "Secure team-wide access control", color: "from-accent/20 to-accent/5" },
+    {
+      icon: TrendingUp,
+      title: "Live Price Tracking",
+      text: "Follow market price changes as soon as new data is captured.",
+      color: "from-primary/20 via-primary/10 to-primary/0",
+    },
+    {
+      icon: BarChart3,
+      title: "Cross-Store Comparison",
+      text: "Compare products across retailers with clear trend visibility.",
+      color: "from-accent/20 via-accent/10 to-accent/0",
+    },
+    {
+      icon: ShieldCheck,
+      title: "Role-Based Security",
+      text: "Protect operations with controlled admin and team access.",
+      color: "from-primary/15 via-accent/10 to-accent/0",
+    },
+    {
+      icon: RefreshCw,
+      title: "Automated ETL Refresh",
+      text: "Pipeline updates keep dashboards aligned with fresh scraped data.",
+      color: "from-accent/20 via-primary/10 to-primary/0",
+    },
   ];
 
   return (
@@ -53,20 +73,23 @@ export function LoginPage() {
           </div>
 
           <p className="text-lg font-medium text-sidebar-foreground/60 mb-10 max-w-md leading-relaxed">
-            Monitor, compare, and forecast olive oil prices across international retail markets.
+            Monitor and compare olive oil prices across international retail markets.
           </p>
 
-          <div className="grid grid-cols-2 gap-4 max-w-lg">
+          <div className="grid grid-cols-2 gap-4 max-w-xl">
             {features.map((f, i) => (
               <motion.div
                 key={i}
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.4 + i * 0.1, duration: 0.4 }}
-                className={`p-4 rounded-2xl bg-gradient-to-br ${f.color} border border-sidebar-border/50 backdrop-blur-sm`}
+                className={`group min-h-[122px] rounded-2xl border border-sidebar-border/55 bg-gradient-to-br ${f.color} p-4 backdrop-blur-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-lg hover:shadow-primary/10`}
               >
-                <f.icon className="w-5 h-5 text-primary mb-3" />
-                <p className="text-sm font-medium text-sidebar-foreground/80 leading-snug">{f.text}</p>
+                <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-lg border border-sidebar-border/60 bg-sidebar/45">
+                  <f.icon className="h-4.5 w-4.5 text-primary transition-transform duration-200 group-hover:scale-110" />
+                </div>
+                <p className="text-sm font-semibold text-sidebar-accent-foreground/95 leading-snug">{f.title}</p>
+                <p className="mt-1 text-xs font-medium text-sidebar-foreground/70 leading-relaxed">{f.text}</p>
               </motion.div>
             ))}
           </div>

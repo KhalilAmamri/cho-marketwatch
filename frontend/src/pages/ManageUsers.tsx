@@ -237,7 +237,11 @@ export default function ManageUsers() {
                       <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-primary/10 hover:text-primary" onClick={() => openEdit(row)}>
                         <Pencil className="w-3.5 h-3.5" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-destructive/10 hover:text-destructive" onClick={() => deleteMutation.mutate(row.id)} disabled={deleteMutation.isPending}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-destructive/10 hover:text-destructive" onClick={() => {
+                        if (confirm(`Are you sure you want to delete the user "${row.username}"?`)) {
+                          deleteMutation.mutate(row.id);
+                        }
+                      }} disabled={deleteMutation.isPending}>
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </div>

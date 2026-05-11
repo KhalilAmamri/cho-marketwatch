@@ -8,7 +8,7 @@ from psycopg2.extras import RealDictCursor
 from app.db.connection import get_connection
 
 PRODUCT_LABEL_SQL = (
-    "b.brand_name || ' ' || c.category_name || ' ' || r.range_name || ' ' || pf.format || ' ' || pf.packaging"
+    "b.brand_name || ' ' || c.category_name || ' ' || r.range_name || ' ' || f.format_name || ' ' || pk.packaging_name"
 )
 
 
@@ -39,7 +39,7 @@ def _get_product_format_row(cur, product_format_id: int) -> dict:
     cur.execute(
         """
         SELECT
-            pf.id,
+            pv.id,
             p.id AS product_id,
             b.id AS brand_id,
             b.brand_name,
@@ -47,15 +47,19 @@ def _get_product_format_row(cur, product_format_id: int) -> dict:
             c.category_name,
             r.id AS range_id,
             r.range_name,
-            pf.format,
-            pf.packaging,
-            pf.created_at
-        FROM product_formats pf
-        JOIN products p ON pf.product_id = p.id
+            f.format_name AS format,
+            pk.packaging_name AS packaging,
+            f.volume_value,
+            f.volume_unit,
+            pv.created_at
+        FROM product_variants pv
+        JOIN products p ON pv.product_id = p.id
+        JOIN formats f ON pv.format_id = f.id
+        JOIN packagings pk ON pv.packaging_id = pk.id
         JOIN brands b ON p.brand_id = b.id
         JOIN categories c ON p.category_id = c.id
         JOIN ranges r ON p.range_id = r.id
-        WHERE pf.id = %s
+        WHERE pv.id = %s
         """,
         (product_format_id,),
     )
@@ -75,7 +79,7 @@ def _get_product_url_row(cur, product_url_id: int) -> dict:
             w.country,
             pu.store_id,
             s.store_code,
-            pu.product_format_id,
+            pu.product_variant_id AS product_format_id,
             {PRODUCT_LABEL_SQL} AS product_label,
             pu.url,
             pu.is_active,
@@ -83,8 +87,10 @@ def _get_product_url_row(cur, product_url_id: int) -> dict:
         FROM product_urls pu
         JOIN websites w ON pu.website_id = w.id
         LEFT JOIN stores s ON pu.store_id = s.id
-        JOIN product_formats pf ON pu.product_format_id = pf.id
-        JOIN products p ON pf.product_id = p.id
+        JOIN product_variants pv ON pu.product_variant_id = pv.id
+        JOIN products p ON pv.product_id = p.id
+        JOIN formats f ON pv.format_id = f.id
+        JOIN packagings pk ON pv.packaging_id = pk.id
         JOIN brands b ON p.brand_id = b.id
         JOIN categories c ON p.category_id = c.id
         JOIN ranges r ON p.range_id = r.id
@@ -253,6 +259,39 @@ def create_range(name: str) -> dict:
     return _create_named_lookup("ranges", "range_name", name)
 
 
+def create_format(payload: dict) -> dict:
+    name = str(payload["name"]).strip()
+    volume_value = float(payload["volume_value"])
+    volume_unit = str(payload["volume_unit"]).strip().upper()
+    if not name:
+        raise ValueError("Format name cannot be empty")
+
+    with get_connection() as conn:
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    INSERT INTO formats (format_name, volume_value, volume_unit)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (format_name)
+                    DO UPDATE SET volume_value = EXCLUDED.volume_value,
+                                  volume_unit = EXCLUDED.volume_unit
+                    RETURNING id, format_name AS name
+                    """,
+                    (name, volume_value, volume_unit),
+                )
+                row = cur.fetchone()
+            conn.commit()
+            return row
+        except psycopg2.Error as exc:
+            conn.rollback()
+            _raise_db_validation(exc, f"{name} already exists", "Invalid format payload")
+
+
+def create_packaging(name: str) -> dict:
+    return _create_named_lookup("packagings", "packaging_name", name)
+
+
 def get_admin_lookups() -> dict:
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -291,10 +330,12 @@ def get_admin_lookups() -> dict:
             cur.execute(
                 f"""
                 SELECT
-                    pf.id,
+                    pv.id,
                     {PRODUCT_LABEL_SQL} AS label
-                FROM product_formats pf
-                JOIN products p ON pf.product_id = p.id
+                FROM product_variants pv
+                JOIN products p ON pv.product_id = p.id
+                JOIN formats f ON pv.format_id = f.id
+                JOIN packagings pk ON pv.packaging_id = pk.id
                 JOIN brands b ON p.brand_id = b.id
                 JOIN categories c ON p.category_id = c.id
                 JOIN ranges r ON p.range_id = r.id
@@ -305,20 +346,20 @@ def get_admin_lookups() -> dict:
 
             cur.execute(
                 """
-                SELECT DISTINCT format
-                FROM product_formats
-                WHERE format IS NOT NULL AND BTRIM(format) <> ''
-                ORDER BY format
+                SELECT format_name AS format
+                FROM formats
+                WHERE format_name IS NOT NULL AND BTRIM(format_name) <> ''
+                ORDER BY format_name
                 """
             )
             formats = [row["format"] for row in cur.fetchall()]
 
             cur.execute(
                 """
-                SELECT DISTINCT packaging
-                FROM product_formats
-                WHERE packaging IS NOT NULL AND BTRIM(packaging) <> ''
-                ORDER BY packaging
+                SELECT packaging_name AS packaging
+                FROM packagings
+                WHERE packaging_name IS NOT NULL AND BTRIM(packaging_name) <> ''
+                ORDER BY packaging_name
                 """
             )
             packagings = [row["packaging"] for row in cur.fetchall()]
@@ -502,7 +543,7 @@ def list_product_formats() -> list[dict]:
             cur.execute(
                 """
                 SELECT
-                    pf.id,
+                    pv.id,
                     p.id AS product_id,
                     b.id AS brand_id,
                     b.brand_name,
@@ -510,15 +551,19 @@ def list_product_formats() -> list[dict]:
                     c.category_name,
                     r.id AS range_id,
                     r.range_name,
-                    pf.format,
-                    pf.packaging,
-                    pf.created_at
-                FROM product_formats pf
-                JOIN products p ON pf.product_id = p.id
+                    f.format_name AS format,
+                    pk.packaging_name AS packaging,
+                    f.volume_value,
+                    f.volume_unit,
+                    pv.created_at
+                FROM product_variants pv
+                JOIN products p ON pv.product_id = p.id
+                JOIN formats f ON pv.format_id = f.id
+                JOIN packagings pk ON pv.packaging_id = pk.id
                 JOIN brands b ON p.brand_id = b.id
                 JOIN categories c ON p.category_id = c.id
                 JOIN ranges r ON p.range_id = r.id
-                ORDER BY b.brand_name, c.category_name, r.range_name, pf.format, pf.packaging
+                ORDER BY b.brand_name, c.category_name, r.range_name, f.format_name, pk.packaging_name
                 """
             )
             return cur.fetchall()
@@ -534,13 +579,41 @@ def create_product_format(payload: dict) -> dict:
                     payload["category_id"],
                     payload["range_id"],
                 )
+                format_name = str(payload["format"]).strip()
+                packaging_name = str(payload["packaging"]).strip()
+                volume_value = float(payload["volume_value"])
+                volume_unit = str(payload["volume_unit"]).strip().upper()
+                if not format_name:
+                    raise ValueError("Format cannot be empty")
+                if not packaging_name:
+                    raise ValueError("Packaging cannot be empty")
+
+                cur.execute("SELECT id FROM formats WHERE format_name = %s", (format_name,))
+                format_row = cur.fetchone()
+                if not format_row:
+                    cur.execute(
+                        "INSERT INTO formats (format_name, volume_value, volume_unit) VALUES (%s, %s, %s) RETURNING id",
+                        (format_name, volume_value, volume_unit),
+                    )
+                    format_row = cur.fetchone()
+                else:
+                    cur.execute(
+                        "UPDATE formats SET volume_value = %s, volume_unit = %s WHERE id = %s",
+                        (volume_value, volume_unit, int(format_row["id"])),
+                    )
+
+                cur.execute("SELECT id FROM packagings WHERE packaging_name = %s", (packaging_name,))
+                packaging_row = cur.fetchone()
+                if not packaging_row:
+                    raise ValueError("Packaging not found in master data")
+
                 cur.execute(
                     """
-                    INSERT INTO product_formats (product_id, format, packaging)
+                    INSERT INTO product_variants (product_id, format_id, packaging_id)
                     VALUES (%s, %s, %s)
                     RETURNING id
                     """,
-                    (product_id, payload["format"], payload["packaging"]),
+                    (product_id, int(format_row["id"]), int(packaging_row["id"])),
                 )
                 created = cur.fetchone()
                 row = _get_product_format_row(cur, int(created["id"]))
@@ -548,7 +621,11 @@ def create_product_format(payload: dict) -> dict:
             return row
         except psycopg2.Error as exc:
             conn.rollback()
-            _raise_db_validation(exc, "Product format already exists", "Invalid brand, category, or range")
+            _raise_db_validation(
+                exc,
+                "Product format already exists",
+                "Invalid brand, category, range, format, or packaging",
+            )
 
 
 def update_product_format(product_format_id: int, payload: dict) -> dict:
@@ -561,16 +638,49 @@ def update_product_format(product_format_id: int, payload: dict) -> dict:
                     payload["category_id"],
                     payload["range_id"],
                 )
+                format_name = str(payload["format"]).strip()
+                packaging_name = str(payload["packaging"]).strip()
+                volume_value = float(payload["volume_value"])
+                volume_unit = str(payload["volume_unit"]).strip().upper()
+                if not format_name:
+                    raise ValueError("Format cannot be empty")
+                if not packaging_name:
+                    raise ValueError("Packaging cannot be empty")
+
+                cur.execute("SELECT id FROM formats WHERE format_name = %s", (format_name,))
+                format_row = cur.fetchone()
+                if not format_row:
+                    cur.execute(
+                        "INSERT INTO formats (format_name, volume_value, volume_unit) VALUES (%s, %s, %s) RETURNING id",
+                        (format_name, volume_value, volume_unit),
+                    )
+                    format_row = cur.fetchone()
+                else:
+                    cur.execute(
+                        "UPDATE formats SET volume_value = %s, volume_unit = %s WHERE id = %s",
+                        (volume_value, volume_unit, int(format_row["id"])),
+                    )
+
+                cur.execute("SELECT id FROM packagings WHERE packaging_name = %s", (packaging_name,))
+                packaging_row = cur.fetchone()
+                if not packaging_row:
+                    raise ValueError("Packaging not found in master data")
+
                 cur.execute(
                     """
-                    UPDATE product_formats
+                    UPDATE product_variants
                     SET product_id = %s,
-                        format = %s,
-                        packaging = %s
+                        format_id = %s,
+                        packaging_id = %s
                     WHERE id = %s
                     RETURNING id
                     """,
-                    (product_id, payload["format"], payload["packaging"], product_format_id),
+                    (
+                        product_id,
+                        int(format_row["id"]),
+                        int(packaging_row["id"]),
+                        product_format_id,
+                    ),
                 )
                 updated = cur.fetchone()
                 if not updated:
@@ -580,13 +690,17 @@ def update_product_format(product_format_id: int, payload: dict) -> dict:
             return row
         except psycopg2.Error as exc:
             conn.rollback()
-            _raise_db_validation(exc, "Product format already exists", "Invalid brand, category, or range")
+            _raise_db_validation(
+                exc,
+                "Product format already exists",
+                "Invalid brand, category, range, format, or packaging",
+            )
 
 
 def delete_product_format(product_format_id: int) -> None:
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM product_formats WHERE id = %s RETURNING id", (product_format_id,))
+            cur.execute("DELETE FROM product_variants WHERE id = %s RETURNING id", (product_format_id,))
             deleted = cur.fetchone()
             if not deleted:
                 raise LookupError("Product format not found")
@@ -605,7 +719,7 @@ def list_product_urls() -> list[dict]:
                     w.country,
                     pu.store_id,
                     s.store_code,
-                    pu.product_format_id,
+                    pu.product_variant_id AS product_format_id,
                     {PRODUCT_LABEL_SQL} AS product_label,
                     pu.url,
                     pu.is_active,
@@ -613,8 +727,10 @@ def list_product_urls() -> list[dict]:
                 FROM product_urls pu
                 JOIN websites w ON pu.website_id = w.id
                 LEFT JOIN stores s ON pu.store_id = s.id
-                JOIN product_formats pf ON pu.product_format_id = pf.id
-                JOIN products p ON pf.product_id = p.id
+                JOIN product_variants pv ON pu.product_variant_id = pv.id
+                JOIN products p ON pv.product_id = p.id
+                JOIN formats f ON pv.format_id = f.id
+                JOIN packagings pk ON pv.packaging_id = pk.id
                 JOIN brands b ON p.brand_id = b.id
                 JOIN categories c ON p.category_id = c.id
                 JOIN ranges r ON p.range_id = r.id
@@ -631,7 +747,7 @@ def create_product_url(payload: dict) -> dict:
                 _ensure_website_is_active(cur, int(payload["website_id"]))
                 cur.execute(
                     """
-                    INSERT INTO product_urls (website_id, store_id, product_format_id, url, is_active)
+                    INSERT INTO product_urls (website_id, store_id, product_variant_id, url, is_active)
                     VALUES (%s, %s, %s, %s, %s)
                     RETURNING id
                     """,
@@ -662,7 +778,7 @@ def update_product_url(product_url_id: int, payload: dict) -> dict:
                     UPDATE product_urls
                     SET website_id = %s,
                         store_id = %s,
-                        product_format_id = %s,
+                        product_variant_id = %s,
                         url = %s,
                         is_active = %s
                     WHERE id = %s

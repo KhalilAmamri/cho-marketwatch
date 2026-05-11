@@ -1,9 +1,10 @@
-@startuml cho_marketwatch_database
+@startuml cho_marketwatch_class_diagram
 
 skinparam linetype ortho
 skinparam classAttributeIconSize 0
-skinparam nodesep 100
-skinparam ranksep 80
+skinparam shadowing false
+skinparam nodesep 80
+skinparam ranksep 70
 
 skinparam class {
     BackgroundColor #FFFDE7
@@ -12,186 +13,224 @@ skinparam class {
     FontSize 12
 }
 
-!define TABLE(name) class name << (T,#FFAAAA) >>
+title CHO Marketwatch - UML Class Diagram (Simple)
 
-' ── LEFT COLUMN: Brand hierarchy ──
+legend top
+Diagramme UML simplifie:
+nom de table + attributs + methodes metier.
+endlegend
 
-TABLE(brands) {
-    **PK id** : SERIAL
+class brands <<table>> {
+    +id [PK] : SERIAL
     --
-    brand_name : VARCHAR(100) UNIQUE NOT NULL
-    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    +brand_name : VARCHAR(100)
+    +created_at : TIMESTAMP
+    --
+    +creer() : brands
+    +renommer() : void
 }
 
-TABLE(categories) {
-    **PK id** : SERIAL
+class categories <<table>> {
+    +id [PK] : SERIAL
     --
-    category_name : VARCHAR(100) UNIQUE NOT NULL
-    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    +category_name : VARCHAR(100)
+    +created_at : TIMESTAMP
+    --
+    +creer() : categories
+    +renommer() : void
 }
 
-TABLE(ranges) {
-    **PK id** : SERIAL
+class ranges <<table>> {
+    +id [PK] : SERIAL
     --
-    range_name : VARCHAR(100) UNIQUE NOT NULL
-    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    +range_name : VARCHAR(100)
+    +created_at : TIMESTAMP
+    --
+    +creer() : ranges
+    +renommer() : void
 }
 
-TABLE(products) {
-    **PK id** : SERIAL
+class products <<table>> {
+    +id [PK] : SERIAL
     --
-    FK brand_id : INTEGER NOT NULL
-    FK category_id : INTEGER NOT NULL
-    FK range_id : INTEGER NOT NULL
-    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    UNIQUE(brand_id, category_id, range_id)
+    +brand_id [FK] : INTEGER
+    +category_id [FK] : INTEGER
+    +range_id [FK] : INTEGER
+    +created_at : TIMESTAMP
+    --
+    +creer() : products
+    +ajouter_format() : product_formats
 }
 
-TABLE(product_formats) {
-    **PK id** : SERIAL
+class product_formats <<table>> {
+    +id [PK] : SERIAL
     --
-    FK product_id : INTEGER NOT NULL
-    format : VARCHAR(50) NOT NULL
-    packaging : VARCHAR(50) NOT NULL
-    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    UNIQUE(product_id, format, packaging)
+    +product_id [FK] : INTEGER
+    +format : VARCHAR(50)
+    +packaging : VARCHAR(50)
+    +created_at : TIMESTAMP
+    --
+    +creer() : product_formats
+    +lister_urls_actives() : List<product_urls>
 }
 
-' ── CENTER COLUMN: Tracking & Scraping ──
-
-TABLE(product_urls) {
-    **PK id** : SERIAL
+class websites <<table>> {
+    +id [PK] : SERIAL
     --
-    FK website_id : INTEGER NOT NULL
-    FK product_format_id : INTEGER NOT NULL
-    FK store_id : INTEGER [nullable]
-    url : VARCHAR(1000) NOT NULL
-    is_active : BOOLEAN DEFAULT TRUE
-    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    UNIQUE(website_id, product_format_id, store_id)
+    +site_name : VARCHAR(100)
+    +base_url : VARCHAR(500)
+    +country : VARCHAR(50)
+    +scraper_status : VARCHAR(20)
+    +created_at : TIMESTAMP
+    --
+    +creer() : websites
+    +activer_scraping() : void
+    +desactiver_scraping() : void
 }
 
-TABLE(raw_staging) {
-    **PK id** : SERIAL
+class stores <<table>> {
+    +id [PK] : SERIAL
     --
-    FK product_url_id : INTEGER NOT NULL
-    payload : TEXT NOT NULL
-    status : VARCHAR(20) CHECK[pending|processed|failed] DEFAULT pending
-    http_status_code : INTEGER
-    error_message : TEXT
-    screenshot_path : TEXT
-    scraped_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    processed_at : TIMESTAMP
+    +website_id [FK] : INTEGER
+    +store_code : VARCHAR(50)
+    +store_name : VARCHAR(200)
+    +created_at : TIMESTAMP
+    --
+    +creer() : stores
+    +modifier_nom() : void
 }
 
-TABLE(scraped_prices) {
-    **PK id** : SERIAL
+class product_urls <<table>> {
+    +id [PK] : SERIAL
     --
-    FK raw_staging_id : INTEGER UNIQUE [nullable]
-    FK product_format_id : INTEGER NOT NULL
-    FK website_id : INTEGER NOT NULL
-    FK store_id : INTEGER [nullable]
-    price : DECIMAL(10,2) CHECK[>0] NOT NULL
-    currency : VARCHAR(10) NOT NULL
-    screenshot_path : TEXT
-    observed_at : TIMESTAMP NOT NULL
-    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    +website_id [FK] : INTEGER
+    +product_format_id [FK] : INTEGER
+    +store_id [FK] : INTEGER?
+    +url : VARCHAR(1000)
+    +is_active : BOOLEAN
+    +created_at : TIMESTAMP
+    --
+    +creer() : product_urls
+    +activer() : void
+    +desactiver() : void
 }
 
-TABLE(weekly_price_summary) {
-    **PK id** : SERIAL
+class raw_staging <<table>> {
+    +id [PK] : SERIAL
     --
-    FK product_format_id : INTEGER NOT NULL
-    FK website_id : INTEGER NOT NULL
-    FK store_id : INTEGER [nullable]
-    week_start : DATE NOT NULL
-    avg_price : DECIMAL(10,2) CHECK[>0] NOT NULL
-    sample_count : INTEGER CHECK[>0] NOT NULL
-    currency : VARCHAR(10) NOT NULL
-    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    updated_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    UNIQUE INDEX(product_format_id, website_id, COALESCE(store_id,0), week_start)
+    +product_url_id [FK] : INTEGER
+    +payload : TEXT
+    +status : VARCHAR(20)
+    +http_status_code : INTEGER
+    +error_message : TEXT
+    +screenshot_path : TEXT
+    +scraped_at : TIMESTAMP
+    +processed_at : TIMESTAMP
+    --
+    +enregistrer() : raw_staging
+    +marquer_traitee() : void
+    +marquer_echec() : void
 }
 
-' ── RIGHT COLUMN: Websites & Stores ──
-
-TABLE(websites) {
-    **PK id** : SERIAL
+class scraped_prices <<table>> {
+    +id [PK] : SERIAL
     --
-    site_name : VARCHAR(100) UNIQUE NOT NULL
-    base_url : VARCHAR(500) NOT NULL
-    country : VARCHAR(50)
-    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    +raw_staging_id [FK] : INTEGER?
+    +product_format_id [FK] : INTEGER
+    +website_id [FK] : INTEGER
+    +store_id [FK] : INTEGER?
+    +price : DECIMAL(10,2)
+    +currency : VARCHAR(10)
+    +screenshot_path : TEXT
+    +observed_at : TIMESTAMP
+    +created_at : TIMESTAMP
+    --
+    +creer() : scraped_prices
+    +est_prix_valide() : bool
+    +convertir_en_eur() : decimal
 }
 
-TABLE(stores) {
-    **PK id** : SERIAL
+class weekly_price_summary <<table>> {
+    +id [PK] : SERIAL
     --
-    FK website_id : INTEGER NOT NULL
-    store_code : VARCHAR(50) NOT NULL
-    store_name : VARCHAR(200)
-    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    UNIQUE(website_id, store_code)
+    +product_format_id [FK] : INTEGER
+    +website_id [FK] : INTEGER
+    +store_id [FK] : INTEGER?
+    +week_start : DATE
+    +avg_price : DECIMAL(10,2)
+    +sample_count : INTEGER
+    +currency : VARCHAR(10)
+    +created_at : TIMESTAMP
+    +updated_at : TIMESTAMP
+    --
+    +aggreger_semaine() : weekly_price_summary
+    +recalculer_moyenne() : void
+    +convertir_en_eur() : decimal
 }
 
-TABLE(exchange_rates) {
-    **PK id** : SERIAL
+class exchange_rates <<table>> {
+    +id [PK] : SERIAL
     --
-    currency : VARCHAR(10) NOT NULL
-    date : DATE NOT NULL
-    rate_to_eur : FLOAT NOT NULL
-    UNIQUE(currency, date)
+    +currency : VARCHAR(10)
+    +date : DATE
+    +rate_to_eur : FLOAT
+    --
+    +creer() : exchange_rates
+    +est_applicable() : bool
 }
 
-TABLE(users) {
-    **PK id** : SERIAL
+class users <<table>> {
+    +id [PK] : SERIAL
     --
-    username : VARCHAR(100) UNIQUE NOT NULL
-    password_hash : VARCHAR(255) NOT NULL
-    full_name : VARCHAR(200)
-    role : VARCHAR(20) CHECK[admin|user] DEFAULT user
-    is_active : BOOLEAN DEFAULT TRUE
-    created_at : TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    last_login : TIMESTAMP
+    +username : VARCHAR(100)
+    +password_hash : VARCHAR(255)
+    +full_name : VARCHAR(200)
+    +role : VARCHAR(20)
+    +is_active : BOOLEAN
+    +created_at : TIMESTAMP
+    +last_login : TIMESTAMP
+    --
+    +creer() : users
+    +activer_compte() : void
+    +desactiver_compte() : void
+    +mettre_a_jour_derniere_connexion() : void
 }
 
+' --- Relations principales (noms courts, clairs, FR) ---
+products "0..*" --> "1" brands : regroupe
+products "0..*" --> "1" categories : regroupe
+products "0..*" --> "1" ranges : regroupe
+product_formats "0..*" --> "1" products : se_decline
 
-' ── Layout ──
+stores "0..*" --> "1" websites : possede
+product_urls "0..*" --> "1" websites : publie
+product_urls "0..*" --> "0..1" stores : lie_a
+product_urls "0..*" --> "1" product_formats : disponible_via
 
-brands           -[hidden]down- categories
-categories       -[hidden]down- products
-products         -[hidden]down- product_formats
-product_formats  -[hidden]right- product_urls
-product_urls     -[hidden]down-  raw_staging
-raw_staging      -[hidden]down-  scraped_prices
-scraped_prices   -[hidden]down-  weekly_price_summary
-product_urls     -[hidden]right- websites
-websites         -[hidden]down-  stores
-stores           -[hidden]down-  exchange_rates
-exchange_rates   -[hidden]down-  users
+raw_staging "0..*" --> "1" product_urls : genere
+scraped_prices "0..1" --> "0..1" raw_staging : parse_en
+scraped_prices "0..*" --> "1" product_formats : mesure
+scraped_prices "0..*" --> "1" websites : mesure
+scraped_prices "0..*" --> "0..1" stores : mesure
 
-' ── Relationships ──
+weekly_price_summary "0..*" --> "1" product_formats : agrege_dans
+weekly_price_summary "0..*" --> "1" websites : agrege_dans
+weekly_price_summary "0..*" --> "0..1" stores : agrege_dans
 
-brands        "1"    -down-  "0..*" products
-categories    "1"    -down-  "0..*" products
-products      "1"    -down-  "0..*" product_formats
-ranges        "1"    -down-  "0..*" products
-product_formats "1"  -right- "0..*" product_urls
-product_formats "1"  -right- "0..*" scraped_prices
-product_formats "1"  -right- "0..*" weekly_price_summary
-product_urls  "1"    -down-  "0..*" raw_staging
-raw_staging   "0..1" -down-  "0..1" scraped_prices
-product_urls  "0..*" -right- "1"    websites
-scraped_prices "0..*" -right- "1"   websites
-weekly_price_summary "0..*" -right- "1" websites
-product_urls  "0..*" -right- "0..1" stores
-scraped_prices "0..*" -right- "0..1" stores
-weekly_price_summary "0..*" -right- "0..1" stores
-websites      "1"    -down-  "0..*" stores
+' Relation metier (sans FK direct)
+weekly_price_summary ..> exchange_rates : converti_vers_eur_avec
 
 note right of exchange_rates
-Used for FX conversion by (currency, date) lookup.
-No direct FK from weekly_price_summary/scraped_prices.
+Pas de FK direct depuis
+weekly_price_summary ou scraped_prices.
+Utilisation metier par currency + date.
 end note
+
+legend bottom
+Lecture rapide:
+0..* = plusieurs
+0..1 = optionnel
+1 = obligatoire
+endlegend
 
 @enduml
