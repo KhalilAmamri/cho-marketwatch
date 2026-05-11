@@ -50,9 +50,20 @@ class RetailPresenceKpis(BaseModel):
 
 
 class RetailPresenceResponse(BaseModel):
-    country: str
+    country: str | None = None
     available_countries: list[str]
     country_retailers: dict[str, list[str]]
     websites: list[RetailPresenceWebsite]
     kpis: RetailPresenceKpis
     rows: list[RetailPresenceProductRow]
+
+
+class RetailPresenceCountryMetric(BaseModel):
+    country: str
+    iso3: str | None = None
+    websites_count: int
+    total_formats: int
+    present_cells: int
+    total_matrix_cells: int
+    coverage_rate: float
+    total_active_links: int

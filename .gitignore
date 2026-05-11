@@ -75,6 +75,20 @@ cache/
 *.xlsx
 !requirements.txt
 
+# Reports (LaTeX build artifacts)
+reports/*.aux
+reports/*.fdb_latexmk
+reports/*.fls
+reports/*.lof
+reports/*.lot
+reports/*.out
+reports/*.toc
+reports/*.synctex.gz
+reports/*.bbl
+reports/*.blg
+reports/*.bcf
+reports/*.run.xml
+
 # OS
 Thumbs.db
 .DS_Store
@@ -90,10 +104,5 @@ htmlcov/
 # saved_notes/
 # plans/main_project_plan.excalidraw
 
-# ignore the folder plans and the folder reports
-reports/
-plans/
-
-# Vite
-frontend/.vite/
-frontend/vite/deps/
+# ignore the storage folder right now
+storage/

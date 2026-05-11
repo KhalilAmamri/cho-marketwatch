@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Link2, Plus, Trash2, Search, ExternalLink, Globe, Pencil } from "lucide-react";
+import { Link2, Plus, Trash2, Search, ExternalLink, Globe, Pencil, Play, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import {
   ProductUrlPayload,
@@ -18,6 +18,7 @@ import {
   deleteProductUrlAdmin,
   getAdminLookups,
   getProductUrlsAdmin,
+  scrapeProductUrlNow,
   setProductUrlActiveAdmin,
   updateProductUrlAdmin,
 } from "@/lib/api";
@@ -37,6 +38,7 @@ export default function ManageUrls() {
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRow, setEditingRow] = useState<ProductUrlRecord | null>(null);
+  const [activeScrapeRowId, setActiveScrapeRowId] = useState<number | null>(null);
 
   const [websiteId, setWebsiteId] = useState("");
   const [storeId, setStoreId] = useState("none");
@@ -88,6 +90,32 @@ export default function ManageUrls() {
     },
     onError: (error: any) => {
       toast.error(error?.response?.data?.detail || "Failed to update URL status");
+    },
+  });
+
+  const scrapeNowMutation = useMutation({
+    mutationFn: (productUrlId: number) => scrapeProductUrlNow(productUrlId, false),
+    onMutate: (productUrlId) => {
+      setActiveScrapeRowId(productUrlId);
+    },
+    onSuccess: (result) => {
+      if (result.rawRow.status === "failed") {
+        toast.error(result.rawRow.errorMessage || "Targeted scrape finished with failure");
+      } else {
+        toast.success(result.message);
+      }
+      queryClient.invalidateQueries({ queryKey: ["operational-visibility"] });
+      queryClient.invalidateQueries({ queryKey: ["operations-logs"] });
+    },
+    onError: (error: any) => {
+      if (error?.code === "ECONNABORTED") {
+        toast.error("Scraping is taking longer than expected. Please wait and check Pipeline Health & Logs.");
+        return;
+      }
+      toast.error(error?.response?.data?.detail || "Failed to run targeted scraping");
+    },
+    onSettled: () => {
+      setActiveScrapeRowId(null);
     },
   });
 
@@ -197,8 +225,8 @@ export default function ManageUrls() {
     <div>
       <PageHeader
         icon={Link2}
-        title="Scraping URLs"
-        subtitle="Manage product URLs backed by website, store, and product-format relations."
+        title="Scraping URL Management"
+        subtitle="Manage scraping targets by website, store, and product format. Use Scrape Now on any row to run a single target immediately."
         action={
           <Button
             onClick={openCreate}
@@ -230,6 +258,7 @@ export default function ManageUrls() {
             </span>
           </div>
         </div>
+        <p className="mt-3 text-xs text-muted-foreground">Tip: Click Scrape Now in the Actions column to scrape only that selected URL.</p>
       </div>
 
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-2xl overflow-hidden">
@@ -241,7 +270,7 @@ export default function ManageUrls() {
               <TableHead className="font-bold text-xs uppercase tracking-wider">Store</TableHead>
               <TableHead className="font-bold text-xs uppercase tracking-wider">Product</TableHead>
               <TableHead className="font-bold text-xs uppercase tracking-wider text-center">Status</TableHead>
-              <TableHead className="font-bold text-xs uppercase tracking-wider text-right">Actions</TableHead>
+              <TableHead className="font-bold text-xs uppercase tracking-wider text-right">Actions (Scrape / Edit / Open / Delete)</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -272,13 +301,31 @@ export default function ManageUrls() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2.5 rounded-lg hover:bg-emerald-500/10 hover:text-emerald-600"
+                        onClick={() => scrapeNowMutation.mutate(row.id)}
+                        disabled={!row.isActive || scrapeNowMutation.isPending}
+                        title={row.isActive ? "Scrape this URL now" : "Activate URL to enable scraping"}
+                        aria-label={row.isActive ? "Scrape this URL now" : "Activate URL to enable scraping"}
+                      >
+                        {scrapeNowMutation.isPending && activeScrapeRowId === row.id
+                          ? <RotateCw className="w-3.5 h-3.5 mr-1 animate-spin" />
+                          : <Play className="w-3.5 h-3.5 mr-1" />}
+                        {scrapeNowMutation.isPending && activeScrapeRowId === row.id ? "Running" : "Scrape Now"}
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-primary/10 hover:text-primary" onClick={() => openEdit(row)}>
                         <Pencil className="w-3.5 h-3.5" />
                       </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-accent/10 hover:text-accent" asChild>
                         <a href={row.url} target="_blank" rel="noopener noreferrer"><ExternalLink className="w-3.5 h-3.5" /></a>
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-destructive/10 hover:text-destructive" onClick={() => deleteMutation.mutate(row.id)} disabled={deleteMutation.isPending}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-destructive/10 hover:text-destructive" onClick={() => {
+                        if (confirm(`Are you sure you want to delete the URL for "${row.productLabel}"?`)) {
+                          deleteMutation.mutate(row.id);
+                        }
+                      }} disabled={deleteMutation.isPending}>
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </div>

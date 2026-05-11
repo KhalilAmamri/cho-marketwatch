@@ -5,7 +5,6 @@ from pathlib import Path
 
 from app.api.routes.admin import router as admin_router
 from app.api.routes.auth import router as auth_router
-from app.api.routes.forecasts import router as forecasts_router
 from app.api.routes.health import router as health_router
 from app.api.routes.operations import router as operations_router
 from app.api.routes.prices import router as prices_router
@@ -26,7 +25,6 @@ app.add_middleware(
 app.include_router(health_router, prefix=settings.API_PREFIX)
 app.include_router(auth_router, prefix=settings.API_PREFIX)
 app.include_router(prices_router, prefix=settings.API_PREFIX)
-app.include_router(forecasts_router, prefix=settings.API_PREFIX)
 app.include_router(admin_router, prefix=settings.API_PREFIX)
 app.include_router(operations_router, prefix=settings.API_PREFIX)
 app.include_router(retail_presence_router, prefix=settings.API_PREFIX)
