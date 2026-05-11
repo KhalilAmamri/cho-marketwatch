@@ -16,11 +16,13 @@ AD_SELECTORS = [
 ]
 
 
-def scrape_products(website_name="Ica"):
-    scrape_products_base(
+def scrape_products(website_name="Ica", product_url_id=None, headless_override=None):
+    return scrape_products_base(
         website_name,
         cookie_selectors=COOKIE_SELECTORS,
         ad_selectors=AD_SELECTORS,
+        product_url_id=product_url_id,
+        headless_override=headless_override,
     )
 
 if __name__ == "__main__":

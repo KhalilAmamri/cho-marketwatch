@@ -1,46 +1,70 @@
-@startuml CHO_MarketWatch_UseCase_Simple
+@startuml CHO_MarketWatch_UseCase_Final
 left to right direction
 skinparam packageStyle rectangle
 skinparam shadowing false
+skinparam actorStyle awesome
 
-actor "User" as User
-actor "Admin" as Admin
-actor "Scheduler Service\n(Automatic Trigger)" as Scheduler
-
+actor "Utilisateur" as User
+actor "Administrateur" as Admin
 Admin --|> User
 
-rectangle "CHO MarketWatch System" {
-  usecase "Login" as UC_Login
+node "Machine Planificateur\n(Task Scheduler / Cron)" as Scheduler
 
-  usecase "View Latest Prices" as UC_Latest
-  usecase "Compare Store Prices" as UC_Compare
-  usecase "View Price Trends" as UC_Trends
-  usecase "View Price Forecast" as UC_Forecast
-  usecase "View Scraping Alerts" as UC_Alerts
+rectangle "Systeme CHO MarketWatch" {
+  usecase "S'authentifier" as UC_Login
 
-  usecase "Manage Products and URLs" as UC_ManageProducts
-  usecase "Manage User Accounts" as UC_ManageUsers
+  usecase "Consulter les prix" as UC_Prices
+  usecase "Consulter les tendances de prix" as UC_Trends
+  usecase "Comparer les prix par magasin" as UC_Compare
 
-  usecase "Run Scheduled Pipeline" as UC_Pipeline
-  usecase "Update Exchange Rates" as UC_UpdateFX
-  usecase "Scrape Website Prices" as UC_Scrape
-  usecase "Process Data and Refresh Weekly Summary" as UC_Process
+  usecase "Gerer produits et catalogue" as UC_ManageCatalog
+  usecase "Gerer URLs produits" as UC_ManageUrls
+  usecase "Gerer sites web et magasins" as UC_ManageWebStores
+  usecase "Gerer comptes utilisateurs" as UC_ManageUsers
+  usecase "Consulter couverture retail" as UC_RetailPresence
+  usecase "Consulter visibilite operationnelle" as UC_Operations
+
+  usecase "Executer pipeline planifie" as UC_Pipeline
+  usecase "Mettre a jour les taux de change" as UC_UpdateFX
+  usecase "Scraper les prix web" as UC_Scrape
+  usecase "Traiter ETL et rafraichir\nle resume hebdomadaire" as UC_Process
 }
 
-User --> UC_Login
-User --> UC_Latest
-User --> UC_Compare
-User --> UC_Trends
-User --> UC_Forecast
-User --> UC_Alerts
+note right of UC_Login
+Precondition globale:
+authentification obligatoire avant
+les fonctions manuelles du dashboard.
+end note
 
-Admin --> UC_ManageProducts
+note right of UC_ManageUsers
+Acces reserve au role Administrateur:
+catalogue, URLs, sites/magasins,
+utilisateurs, retail presence,
+visibilite operationnelle.
+end note
+
+note right of UC_Pipeline
+Execution automatique par machine
+planificatrice (pas de connexion
+utilisateur interactive).
+end note
+
+User --> UC_Login
+User --> UC_Prices
+User --> UC_Trends
+User --> UC_Compare
+
+Admin --> UC_ManageCatalog
+Admin --> UC_ManageUrls
+Admin --> UC_ManageWebStores
 Admin --> UC_ManageUsers
+Admin --> UC_RetailPresence
+Admin --> UC_Operations
 
 Scheduler --> UC_Pipeline
+
 UC_Pipeline .> UC_UpdateFX : <<include>>
 UC_Pipeline .> UC_Scrape : <<include>>
 UC_Pipeline .> UC_Process : <<include>>
-
 
 @enduml

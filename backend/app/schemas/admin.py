@@ -92,6 +92,14 @@ class ProductFormatCreate(BaseModel):
     range_id: int = Field(..., gt=0)
     format: str = Field(..., min_length=1, max_length=50)
     packaging: str = Field(..., min_length=1, max_length=50)
+    volume_value: float = Field(..., gt=0)
+    volume_unit: Literal["ML", "L"]
+
+
+class FormatCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=50)
+    volume_value: float = Field(..., gt=0)
+    volume_unit: Literal["ML", "L"]
 
 
 class ProductFormatUpdate(ProductFormatCreate):
@@ -109,6 +117,8 @@ class ProductFormatRow(BaseModel):
     range_name: str
     format: str
     packaging: str
+    volume_value: float
+    volume_unit: Literal["ML", "L"]
     created_at: datetime | None = None
 
 

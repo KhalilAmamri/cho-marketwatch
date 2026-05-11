@@ -10,10 +10,12 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   ScraperStatus,
+  Country,
   createWebsiteAdmin,
   createStoreAdmin,
   deleteWebsiteAdmin,
   deleteStoreAdmin,
+  getCountriesAdmin,
   getStoresAdmin,
   getWebsitesAdmin,
   updateWebsiteAdmin,
@@ -54,6 +56,11 @@ export default function StoresManagement() {
     queryFn: getStoresAdmin,
   });
 
+  const { data: countries = [], isLoading: isCountriesLoading } = useQuery({
+    queryKey: ["admin-countries"],
+    queryFn: getCountriesAdmin,
+  });
+
   const [selectedWebsiteId, setSelectedWebsiteId] = useState("");
   const [storeCode, setStoreCode] = useState("");
   const [storeName, setStoreName] = useState("");
@@ -84,6 +91,22 @@ export default function StoresManagement() {
   const storesForWebsite = useMemo(
     () => stores.filter((store) => String(store.websiteId) === selectedWebsiteId),
     [stores, selectedWebsiteId],
+  );
+
+  // Count default stores: websites without explicit stores count as 1 default store each
+  const websiteIdsWithStores = useMemo(
+    () => new Set(stores.map((s) => s.websiteId)),
+    [stores],
+  );
+
+  const websitesWithoutStores = useMemo(
+    () => websites.filter((w) => !websiteIdsWithStores.has(w.id)),
+    [websites, websiteIdsWithStores],
+  );
+
+  const totalStoreCount = useMemo(
+    () => stores.length + websitesWithoutStores.length,
+    [stores.length, websitesWithoutStores.length],
   );
 
   const pendingWebsiteCount = useMemo(
@@ -284,6 +307,8 @@ export default function StoresManagement() {
     ? `${selectedWebsite.siteName}${selectedWebsite.country ? ` (${selectedWebsite.country})` : ""}`
     : "No website selected";
 
+  const selectedWebsiteStoreLabel = storesForWebsite.length === 1 ? "1 store" : `${storesForWebsite.length} stores`;
+
   return (
     <div>
       <PageHeader
@@ -292,11 +317,10 @@ export default function StoresManagement() {
         subtitle="Manage backend websites and stores. Website scraper_status is managed by the database."
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-6">
         <MetricCard label="Websites" value={websites.length} icon={Globe2} accentColor="gold" />
         <MetricCard label="Pending Websites" value={pendingWebsiteCount} icon={Globe2} />
-        <MetricCard label="Total Stores" value={stores.length} icon={Database} accentColor="teal" />
-        <MetricCard label="Stores In Selected Website" value={storesForWebsite.length} icon={Building2} />
+        <MetricCard label="Total Stores" value={totalStoreCount} icon={Database} accentColor="teal" />
       </div>
 
       <div className="glass-card rounded-2xl p-5 mb-6">
@@ -328,13 +352,18 @@ export default function StoresManagement() {
 
           <div>
             <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5 block">Country</label>
-            <Input
-              value={websiteCountry}
-              onChange={(event) => setWebsiteCountry(event.target.value)}
-              placeholder="e.g. Sweden"
-              required
-              className="h-10 rounded-xl"
-            />
+            <Select value={websiteCountry} onValueChange={setWebsiteCountry}>
+              <SelectTrigger className="h-10 rounded-xl" disabled={isCountriesLoading}>
+                <SelectValue placeholder={isCountriesLoading ? "Loading..." : "Select country"} />
+              </SelectTrigger>
+              <SelectContent className="max-h-[300px]">
+                {countries.map((country: Country) => (
+                  <SelectItem key={country.alpha3} value={country.name}>
+                    {country.name} ({country.alpha2})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="md:col-span-2 lg:col-span-4 flex items-end gap-2">
@@ -418,7 +447,11 @@ export default function StoresManagement() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 rounded-lg hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => removeWebsite(website.id)}
+                        onClick={() => {
+                          if (confirm(`Are you sure you want to delete the website "${website.siteName}"? This will also delete all associated stores and product URLs.`)) {
+                            removeWebsite(website.id);
+                          }
+                        }}
                         disabled={deleteWebsiteMutation.isPending}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -503,7 +536,10 @@ export default function StoresManagement() {
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-2xl overflow-hidden">
         <div className="p-4 border-b border-border/50 flex items-center justify-between">
           <h3 className="text-sm uppercase tracking-wider font-bold text-muted-foreground">Website Stores</h3>
-          <p className="text-xs text-muted-foreground">{websiteLabel}</p>
+          <p className="text-xs text-muted-foreground">
+            {websiteLabel}
+            {storesForWebsite.length > 0 ? ` · ${selectedWebsiteStoreLabel}` : ""}
+          </p>
         </div>
 
         <Table>
@@ -555,7 +591,11 @@ export default function StoresManagement() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 rounded-lg hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => deleteMutation.mutate(store.id)}
+                        onClick={() => {
+                          if (confirm(`Are you sure you want to delete the store "${store.storeCode}"?`)) {
+                            deleteMutation.mutate(store.id);
+                          }
+                        }}
                         disabled={deleteMutation.isPending}
                       >
                         <Trash2 className="w-3.5 h-3.5" />

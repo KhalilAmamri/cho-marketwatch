@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import axios from "axios";
 
 export const TOKEN_STORAGE_KEY = "cho_marketwatch_token";
@@ -11,6 +12,8 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || defaultApiBaseUrl,
   timeout: 15000,
 });
+
+const SCRAPE_ACTION_TIMEOUT_MS = 180000;
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem(TOKEN_STORAGE_KEY);
@@ -28,21 +31,49 @@ export interface AuthUser {
   role: "admin" | "user";
 }
 
+export interface ProductFilterOption {
+  productVariantId: number;
+  label: string;
+  familyLabel: string;
+  variantLabel: string;
+  brand: string;
+  category: string;
+  rangeName: string;
+  format: string;
+  packaging: string;
+}
+
 export interface FilterResponse {
-  products: string[];
+  products: ProductFilterOption[];
   websites: string[];
   countries: string[];
   currencies: string[];
 }
 
+export type PriceDataStatus = "OK" | "MISSING" | "PARTIAL";
+export type PriceMode = "average" | "last_scraped";
+
 export interface PriceSummaryRow {
+  productVariantId: number;
   product: string;
+  familyLabel: string;
+  variantLabel: string;
+  brand: string;
+  category: string;
+  rangeName: string;
+  format: string;
+  packaging: string;
   website: string;
   country: string | null;
   store: string;
   currency: string;
-  price: number;
+  price: number | null;
+  basePrice: number | null;
+  isDiscounted: boolean | null;
   priceEur: number | null;
+  unitPriceEur: number | null;
+  unitLabel: string | null;
+  dataStatus: PriceDataStatus;
   sourceUrl: string | null;
   screenshotPath: string | null;
   weekStart: string;
@@ -51,19 +82,101 @@ export interface PriceSummaryRow {
 export interface TimeseriesRow {
   weekStart: string;
   avgPriceEur: number | null;
+  avgUnitPriceEur: number | null;
+  unitLabel: string | null;
+  sampleCount: number;
+  dataStatus: PriceDataStatus;
+}
+
+export interface PriceAnalysisKpis {
+  latestWeekStart: string | null;
+  products: number;
+  stores: number;
+  countries: number;
+  avgPriceEur: number | null;
+  maxPriceEur: number | null;
+  minPriceEur: number | null;
+  unitLabel: string | null;
+}
+
+export interface ClusteredBarRank {
+  rank: number;
+  store: string;
+  country?: string | null;
+  unitPriceEur: number | null;
+  priceEur?: number | null;
+}
+
+export interface ClusteredBarGroup {
+  productVariantId: number;
+  product: string;
+  ranks: ClusteredBarRank[];
+}
+
+export interface StoreShareSlice {
+  store: string;
+  country?: string | null;
+  records: number;
+}
+
+export interface PriceAnalysisResponse {
+  kpis: PriceAnalysisKpis;
+  clustered: ClusteredBarGroup[];
+  trend: TimeseriesRow[];
+  storeShare: StoreShareSlice[];
+}
+
+export interface MarketOverviewKpis {
+  latestWeekStart: string | null;
+  products: number;
+  stores: number;
+  countries: number;
+  avgDiscountPct: number | null;
+  avgUnitPriceEur: number | null;
+  maxUnitPriceEur: number | null;
+  minUnitPriceEur: number | null;
+  unitLabel: string | null;
+}
+
+export interface StoreUnitRankingRow {
+  store: string;
+  country?: string | null;
+  avgUnitPriceEur: number | null;
   sampleCount: number;
 }
 
-export interface ForecastRow {
-  date: string;
-  pricePred: number;
-  priceLow: number | null;
-  priceHigh: number | null;
-  confidenceLevel: string | null;
-  trainingPoints: number | null;
-  coverageRate: number | null;
-  lastObservedWeek: string | null;
+export interface StorePresenceSlice {
   store: string;
+  country?: string | null;
+  records: number;
+}
+
+export interface StoreOption {
+  store: string;
+  country: string | null;
+}
+
+export interface MarketOverviewResponse {
+  kpis: MarketOverviewKpis;
+  storeRankings: StoreUnitRankingRow[];
+  storePresence: StorePresenceSlice[];
+}
+
+export async function getStoreUniverse(options?: {
+  website?: string;
+  country?: string;
+}): Promise<StoreOption[]> {
+  const { data } = await api.get("/prices/stores", {
+    params: {
+      website: options?.website || undefined,
+      country: options?.country || undefined,
+    },
+  });
+
+  return (data || []).map((row: any) => ({
+    store: row.store,
+    country: row.country ?? null,
+  }));
 }
 
 export interface DashboardKpis {
@@ -84,6 +197,7 @@ export interface OperationalStatusCodeCount {
 export interface OperationalFailedRow {
   id: number;
   storeName: string;
+  productLabel: string;
   errorMessage: string | null;
   screenshotPath: string | null;
   httpStatusCode: number | null;
@@ -97,6 +211,29 @@ export interface OperationalVisibilityData {
   successRequests: number;
   statusCodeCounts: OperationalStatusCodeCount[];
   failedRows: OperationalFailedRow[];
+}
+
+export type OperationStatus = "pending" | "processed" | "failed";
+
+export interface OperationLogRow {
+  rawStagingId: number;
+  productUrlId: number;
+  websiteName: string;
+  storeName: string;
+  productLabel: string;
+  status: OperationStatus;
+  httpStatusCode: number | null;
+  errorMessage: string | null;
+  screenshotPath: string | null;
+  scrapedAt: string;
+  processedAt: string | null;
+}
+
+export interface ScrapeActionData {
+  mode: "manual" | "retry";
+  message: string;
+  retryOfRawId: number | null;
+  rawRow: OperationLogRow;
 }
 
 export type RetailPresenceStatus = "all_present" | "partial" | "none";
@@ -145,7 +282,7 @@ export interface RetailPresenceKpis {
 }
 
 export interface RetailPresenceData {
-  country: string;
+  country: string | null;
   availableCountries: string[];
   countryRetailers: Record<string, string[]>;
   websites: RetailPresenceWebsite[];
@@ -204,6 +341,8 @@ export interface ProductFormatRecord {
   rangeName: string;
   format: string;
   packaging: string;
+  volumeValue: number;
+  volumeUnit: string;
   createdAt: string | null;
 }
 
@@ -213,6 +352,8 @@ export interface ProductFormatPayload {
   rangeId: number;
   format: string;
   packaging: string;
+  volumeValue: number;
+  volumeUnit: string;
 }
 
 export interface ProductUrlRecord {
@@ -305,6 +446,8 @@ function mapProductFormat(row: any): ProductFormatRecord {
     rangeName: row.range_name,
     format: row.format,
     packaging: row.packaging,
+    volumeValue: Number(row.volume_value),
+    volumeUnit: String(row.volume_unit || ""),
     createdAt: row.created_at || null,
   };
 }
@@ -397,7 +540,9 @@ export async function getKpis(): Promise<DashboardKpis> {
   };
 }
 
-export async function getOperationalVisibility(limitFailed = 100): Promise<OperationalVisibilityData> {
+export async function getOperationalVisibility(
+  limitFailed = 100,
+): Promise<OperationalVisibilityData> {
   const { data } = await api.get("/operations/visibility", {
     params: { limit_failed: limitFailed },
   });
@@ -414,6 +559,7 @@ export async function getOperationalVisibility(limitFailed = 100): Promise<Opera
     failedRows: (data.failed_rows || []).map((row: any) => ({
       id: row.id,
       storeName: row.store_name,
+      productLabel: row.product_label,
       errorMessage: row.error_message || null,
       screenshotPath: row.screenshot_path || null,
       httpStatusCode: row.http_status_code ?? null,
@@ -422,7 +568,74 @@ export async function getOperationalVisibility(limitFailed = 100): Promise<Opera
   };
 }
 
-export async function getRetailPresence(country?: string): Promise<RetailPresenceData> {
+function mapOperationLogRow(row: any): OperationLogRow {
+  return {
+    rawStagingId: row.raw_staging_id,
+    productUrlId: row.product_url_id,
+    websiteName: row.website_name,
+    storeName: row.store_name,
+    productLabel: row.product_label,
+    status: row.status,
+    httpStatusCode: row.http_status_code ?? null,
+    errorMessage: row.error_message || null,
+    screenshotPath: row.screenshot_path || null,
+    scrapedAt: row.scraped_at,
+    processedAt: row.processed_at || null,
+  };
+}
+
+function mapScrapeActionData(data: any): ScrapeActionData {
+  return {
+    mode: data.mode,
+    message: data.message,
+    retryOfRawId: data.retry_of_raw_id ?? null,
+    rawRow: mapOperationLogRow(data.raw_row),
+  };
+}
+
+export async function getOperationLogs(
+  limit = 200,
+): Promise<OperationLogRow[]> {
+  const { data } = await api.get("/operations/logs", {
+    params: { limit },
+  });
+
+  return (data.rows || []).map((row: any) => mapOperationLogRow(row));
+}
+
+export async function scrapeProductUrlNow(
+  productUrlId: number,
+  headless = false,
+): Promise<ScrapeActionData> {
+  const { data } = await api.post(
+    `/operations/scrape/product-url/${productUrlId}`,
+    null,
+    {
+      params: { headless },
+      timeout: SCRAPE_ACTION_TIMEOUT_MS,
+    },
+  );
+  return mapScrapeActionData(data);
+}
+
+export async function retryFailedRawNow(
+  rawStagingId: number,
+  headless = false,
+): Promise<ScrapeActionData> {
+  const { data } = await api.post(
+    `/operations/retry/raw/${rawStagingId}`,
+    null,
+    {
+      params: { headless },
+      timeout: SCRAPE_ACTION_TIMEOUT_MS,
+    },
+  );
+  return mapScrapeActionData(data);
+}
+
+export async function getRetailPresence(
+  country?: string,
+): Promise<RetailPresenceData> {
   const { data } = await api.get("/retail-presence", {
     params: {
       country: country || undefined,
@@ -430,13 +643,19 @@ export async function getRetailPresence(country?: string): Promise<RetailPresenc
   });
 
   return {
-    country: data.country,
-    availableCountries: (data.available_countries || []).map((row: any) => String(row)),
+    country: data.country ?? null,
+    availableCountries: (data.available_countries || []).map((row: any) =>
+      String(row),
+    ),
     countryRetailers: Object.fromEntries(
-      Object.entries(data.country_retailers || {}).map(([country, retailers]) => [
-        String(country),
-        Array.isArray(retailers) ? retailers.map((name: any) => String(name)) : [],
-      ]),
+      Object.entries(data.country_retailers || {}).map(
+        ([country, retailers]) => [
+          String(country),
+          Array.isArray(retailers)
+            ? retailers.map((name: any) => String(name))
+            : [],
+        ],
+      ),
     ),
     websites: (data.websites || []).map((row: any) => ({
       websiteId: row.website_id,
@@ -477,28 +696,95 @@ export async function getRetailPresence(country?: string): Promise<RetailPresenc
   };
 }
 
-export async function getFilters(): Promise<FilterResponse> {
-  const { data } = await api.get("/prices/filters");
-  return data;
+export type RetailPresenceCountryMetric = {
+  country: string;
+  iso3: string | null;
+  websitesCount: number;
+  totalFormats: number;
+  presentCells: number;
+  totalMatrixCells: number;
+  coverageRate: number;
+  totalActiveLinks: number;
+};
+
+export async function getRetailPresenceCountryMetrics(): Promise<
+  RetailPresenceCountryMetric[]
+> {
+  const { data } = await api.get("/retail-presence/country-metrics");
+
+  return (data || []).map((row: any) => ({
+    country: String(row.country),
+    iso3: row.iso3 ? String(row.iso3) : null,
+    websitesCount: Number(row.websites_count || 0),
+    totalFormats: Number(row.total_formats || 0),
+    presentCells: Number(row.present_cells || 0),
+    totalMatrixCells: Number(row.total_matrix_cells || 0),
+    coverageRate: Number(row.coverage_rate || 0),
+    totalActiveLinks: Number(row.total_active_links || 0),
+  }));
 }
 
-export async function getSummary(weekStart?: string, allWeeks = false): Promise<PriceSummaryRow[]> {
-  const params: Record<string, string | boolean> = {};
+export async function getFilters(): Promise<FilterResponse> {
+  const { data } = await api.get("/prices/filters");
+  return {
+    products: (data.products || []).map((row: any) => ({
+      productVariantId: row.product_variant_id,
+      label: row.label,
+      familyLabel: row.family_label,
+      variantLabel: row.variant_label,
+      brand: row.brand,
+      category: row.category,
+      rangeName: row.range_name,
+      format: row.format,
+      packaging: row.packaging,
+    })),
+    websites: (data.websites || []).map((item: any) => String(item)),
+    countries: (data.countries || []).map((item: any) => String(item)),
+    currencies: (data.currencies || []).map((item: any) => String(item)),
+  };
+}
+
+export async function getSummary(
+  weekStart?: string,
+  allWeeks = false,
+  priceMode: PriceMode = "average",
+  productVariantId?: number,
+  fxBasisWeekStart?: string,
+): Promise<PriceSummaryRow[]> {
+  const params: Record<string, string | boolean | number> = {
+    price_mode: priceMode,
+  };
   if (weekStart) params.week_start = weekStart;
+  if (fxBasisWeekStart) params.fx_basis_week_start = fxBasisWeekStart;
   if (allWeeks) params.all_weeks = true;
+  if (typeof productVariantId === "number")
+    params.product_variant_id = productVariantId;
 
   const { data } = await api.get("/prices/summary", {
     params,
   });
 
   return data.map((row: any) => ({
+    productVariantId: row.product_variant_id,
     product: row.product,
+    familyLabel: row.family_label,
+    variantLabel: row.variant_label,
+    brand: row.brand,
+    category: row.category,
+    rangeName: row.range_name,
+    format: row.format,
+    packaging: row.packaging,
     website: row.website,
     country: row.country,
     store: row.store,
     currency: row.currency,
     price: row.price,
+    basePrice: row.base_price ?? null,
+    isDiscounted: row.is_discounted ?? null,
     priceEur: row.price_eur,
+    unitPriceEur: row.unit_price_eur ?? null,
+    unitLabel: row.unit_label ?? null,
+    dataStatus: row.data_status,
     sourceUrl: row.source_url || null,
     screenshotPath: row.screenshot_path || null,
     weekStart: row.week_start,
@@ -522,49 +808,162 @@ export function resolveStorageUrl(storagePath?: string | null): string | null {
 }
 
 export async function getTimeseries(
-  product: string,
+  productVariantId: number,
   website?: string,
   country?: string,
   weeks = 52,
   store?: string,
+  fxBasisWeekStart?: string,
 ): Promise<TimeseriesRow[]> {
   const { data } = await api.get("/prices/timeseries", {
     params: {
-      product,
+      product_variant_id: productVariantId,
       website: website || undefined,
       country: country || undefined,
       store: store || undefined,
       weeks,
+      fx_basis_week_start: fxBasisWeekStart || undefined,
     },
   });
 
   return data.map((row: any) => ({
     weekStart: row.week_start,
     avgPriceEur: row.avg_price_eur,
+    avgUnitPriceEur: row.avg_unit_price_eur ?? null,
+    unitLabel: row.unit_label ?? null,
     sampleCount: row.sample_count,
+    dataStatus: row.data_status,
   }));
 }
 
-export async function getForecasts(product: string): Promise<ForecastRow[]> {
-  const { data } = await api.get("/forecasts", { params: { product } });
-  return data.map((row: any) => ({
-    date: row.forecast_date,
-    pricePred: row.predicted_price,
-    priceLow: row.price_low,
-    priceHigh: row.price_high,
-    confidenceLevel: row.confidence_level,
-    trainingPoints: row.training_points,
-    coverageRate: row.coverage_rate ?? null,
-    lastObservedWeek: row.last_observed_week ?? null,
-    store: row.store,
-  }));
+export async function getAvailableWeeks(options: {
+  website?: string;
+  country?: string;
+  store?: string;
+  limit?: number;
+}): Promise<string[]> {
+  const { data } = await api.get("/prices/weeks", {
+    params: {
+      website: options.website || undefined,
+      country: options.country || undefined,
+      store: options.store || undefined,
+      limit: options.limit ?? 260,
+    },
+  });
+
+  return (data || []).map((value: any) => String(value));
+}
+
+export async function getPriceAnalysis(options: {
+  productVariantIds?: number[];
+  website?: string;
+  country?: string;
+  weeks?: number;
+  fxBasisWeekStart?: string;
+}): Promise<PriceAnalysisResponse> {
+  const params = new URLSearchParams();
+
+  const ids = (options.productVariantIds || []).filter(
+    (id) => Number.isFinite(id) && id > 0,
+  );
+  for (const id of ids) params.append("product_variant_id", String(id));
+  if (options.website) params.append("website", options.website);
+  if (options.country) params.append("country", options.country);
+  params.append("weeks", String(options.weeks ?? 52));
+  if (options.fxBasisWeekStart) params.append("fx_basis_week_start", options.fxBasisWeekStart);
+
+  const { data } = await api.get("/prices/analysis", { params });
+
+  return {
+    kpis: {
+      latestWeekStart: data.kpis.latest_week_start,
+      products: data.kpis.products,
+      stores: data.kpis.stores,
+      countries: data.kpis.countries,
+      avgPriceEur: data.kpis.avg_price_eur ?? null,
+      maxPriceEur: data.kpis.max_price_eur ?? null,
+      minPriceEur: data.kpis.min_price_eur ?? null,
+      unitLabel: data.kpis.unit_label ?? null,
+    },
+    clustered: (data.clustered || []).map((row: any) => ({
+      productVariantId: row.product_variant_id,
+      product: row.product,
+      ranks: (row.ranks || []).map((rank: any) => ({
+        rank: rank.rank,
+        store: rank.store,
+        country: rank.country ?? null,
+        unitPriceEur:
+          typeof rank.unit_price_eur === "number" ? rank.unit_price_eur : null,
+        priceEur: typeof rank.price_eur === "number" ? rank.price_eur : null,
+      })),
+    })),
+    trend: (data.trend || []).map((row: any) => ({
+      weekStart: row.week_start,
+      avgPriceEur: row.avg_price_eur ?? null,
+      avgUnitPriceEur: row.avg_unit_price_eur ?? null,
+      unitLabel: row.unit_label ?? null,
+      sampleCount: row.sample_count,
+      dataStatus: row.data_status,
+    })),
+    storeShare: (data.store_share || []).map((row: any) => ({
+      store: row.store,
+      country: row.country ?? null,
+      records: row.records,
+    })),
+  };
+}
+
+export async function getMarketOverview(options: {
+  website?: string;
+  country?: string;
+  store?: string;
+  weekStart?: string;
+  fxBasisWeekStart?: string;
+}): Promise<MarketOverviewResponse> {
+  const { data } = await api.get("/prices/market-overview", {
+    params: {
+      website: options.website || undefined,
+      country: options.country || undefined,
+      store: options.store || undefined,
+      week_start: options.weekStart || undefined,
+      fx_basis_week_start: options.fxBasisWeekStart || undefined,
+    },
+  });
+
+  return {
+    kpis: {
+      latestWeekStart: data.kpis.latest_week_start,
+      products: data.kpis.products,
+      stores: data.kpis.stores,
+      countries: data.kpis.countries,
+      avgDiscountPct: data.kpis.avg_discount_pct ?? null,
+      avgUnitPriceEur: data.kpis.avg_unit_price_eur ?? null,
+      maxUnitPriceEur: data.kpis.max_unit_price_eur ?? null,
+      minUnitPriceEur: data.kpis.min_unit_price_eur ?? null,
+      unitLabel: data.kpis.unit_label ?? null,
+    },
+    storeRankings: (data.store_rankings || []).map((row: any) => ({
+      store: row.store,
+      country: row.country ?? null,
+      avgUnitPriceEur: row.avg_unit_price_eur ?? null,
+      sampleCount: row.sample_count,
+    })),
+    storePresence: (data.store_presence || []).map((row: any) => ({
+      store: row.store,
+      country: row.country ?? null,
+      records: row.records,
+    })),
+  };
 }
 
 export async function getAdminLookups(): Promise<AdminLookups> {
   const { data } = await api.get("/admin/lookups");
   return {
     brands: data.brands.map((item: any) => ({ id: item.id, name: item.name })),
-    categories: data.categories.map((item: any) => ({ id: item.id, name: item.name })),
+    categories: data.categories.map((item: any) => ({
+      id: item.id,
+      name: item.name,
+    })),
     ranges: data.ranges.map((item: any) => ({ id: item.id, name: item.name })),
     websites: data.websites.map((item: any) => ({
       id: item.id,
@@ -581,7 +980,10 @@ export async function getAdminLookups(): Promise<AdminLookups> {
       storeName: item.store_name,
       label: item.label,
     })),
-    productFormats: data.product_formats.map((item: any) => ({ id: item.id, label: item.label })),
+    productFormats: data.product_formats.map((item: any) => ({
+      id: item.id,
+      label: item.label,
+    })),
     formats: (data.formats || []).map((item: any) => String(item)),
     packagings: (data.packagings || []).map((item: any) => String(item)),
   };
@@ -602,6 +1004,24 @@ export async function createRangeAdmin(name: string): Promise<LookupItem> {
   return { id: data.id, name: data.name };
 }
 
+export async function createFormatAdmin(payload: {
+  name: string;
+  volumeValue: number;
+  volumeUnit: string;
+}): Promise<LookupItem> {
+  const { data } = await api.post("/admin/lookups/formats", {
+    name: payload.name,
+    volume_value: payload.volumeValue,
+    volume_unit: payload.volumeUnit,
+  });
+  return { id: data.id, name: data.name };
+}
+
+export async function createPackagingAdmin(name: string): Promise<LookupItem> {
+  const { data } = await api.post("/admin/lookups/packagings", { name });
+  return { id: data.id, name: data.name };
+}
+
 export async function getStoresAdmin(): Promise<AdminStoreRecord[]> {
   const { data } = await api.get("/admin/stores");
   return data.map(mapAdminStore);
@@ -612,7 +1032,9 @@ export async function getWebsitesAdmin(): Promise<AdminWebsiteRecord[]> {
   return data.map(mapAdminWebsite);
 }
 
-export async function createWebsiteAdmin(payload: AdminWebsitePayload): Promise<AdminWebsiteRecord> {
+export async function createWebsiteAdmin(
+  payload: AdminWebsitePayload,
+): Promise<AdminWebsiteRecord> {
   const { data } = await api.post("/admin/websites", {
     site_name: payload.siteName,
     base_url: payload.baseUrl,
@@ -621,7 +1043,10 @@ export async function createWebsiteAdmin(payload: AdminWebsitePayload): Promise<
   return mapAdminWebsite(data);
 }
 
-export async function updateWebsiteAdmin(id: number, payload: AdminWebsitePayload): Promise<AdminWebsiteRecord> {
+export async function updateWebsiteAdmin(
+  id: number,
+  payload: AdminWebsitePayload,
+): Promise<AdminWebsiteRecord> {
   const { data } = await api.put(`/admin/websites/${id}`, {
     site_name: payload.siteName,
     base_url: payload.baseUrl,
@@ -634,7 +1059,9 @@ export async function deleteWebsiteAdmin(id: number): Promise<void> {
   await api.delete(`/admin/websites/${id}`);
 }
 
-export async function createStoreAdmin(payload: AdminStorePayload): Promise<AdminStoreRecord> {
+export async function createStoreAdmin(
+  payload: AdminStorePayload,
+): Promise<AdminStoreRecord> {
   const { data } = await api.post("/admin/stores", {
     website_id: payload.websiteId,
     store_code: payload.storeCode,
@@ -643,7 +1070,10 @@ export async function createStoreAdmin(payload: AdminStorePayload): Promise<Admi
   return mapAdminStore(data);
 }
 
-export async function updateStoreAdmin(id: number, payload: AdminStorePayload): Promise<AdminStoreRecord> {
+export async function updateStoreAdmin(
+  id: number,
+  payload: AdminStorePayload,
+): Promise<AdminStoreRecord> {
   const { data } = await api.put(`/admin/stores/${id}`, {
     website_id: payload.websiteId,
     store_code: payload.storeCode,
@@ -661,24 +1091,33 @@ export async function getProductFormatsAdmin(): Promise<ProductFormatRecord[]> {
   return data.map(mapProductFormat);
 }
 
-export async function createProductFormatAdmin(payload: ProductFormatPayload): Promise<ProductFormatRecord> {
+export async function createProductFormatAdmin(
+  payload: ProductFormatPayload,
+): Promise<ProductFormatRecord> {
   const { data } = await api.post("/admin/product-formats", {
     brand_id: payload.brandId,
     category_id: payload.categoryId,
     range_id: payload.rangeId,
     format: payload.format,
     packaging: payload.packaging,
+    volume_value: payload.volumeValue,
+    volume_unit: payload.volumeUnit,
   });
   return mapProductFormat(data);
 }
 
-export async function updateProductFormatAdmin(id: number, payload: ProductFormatPayload): Promise<ProductFormatRecord> {
+export async function updateProductFormatAdmin(
+  id: number,
+  payload: ProductFormatPayload,
+): Promise<ProductFormatRecord> {
   const { data } = await api.put(`/admin/product-formats/${id}`, {
     brand_id: payload.brandId,
     category_id: payload.categoryId,
     range_id: payload.rangeId,
     format: payload.format,
     packaging: payload.packaging,
+    volume_value: payload.volumeValue,
+    volume_unit: payload.volumeUnit,
   });
   return mapProductFormat(data);
 }
@@ -692,7 +1131,9 @@ export async function getProductUrlsAdmin(): Promise<ProductUrlRecord[]> {
   return data.map(mapProductUrl);
 }
 
-export async function createProductUrlAdmin(payload: ProductUrlPayload): Promise<ProductUrlRecord> {
+export async function createProductUrlAdmin(
+  payload: ProductUrlPayload,
+): Promise<ProductUrlRecord> {
   const { data } = await api.post("/admin/product-urls", {
     website_id: payload.websiteId,
     store_id: payload.storeId,
@@ -703,7 +1144,10 @@ export async function createProductUrlAdmin(payload: ProductUrlPayload): Promise
   return mapProductUrl(data);
 }
 
-export async function updateProductUrlAdmin(id: number, payload: ProductUrlPayload): Promise<ProductUrlRecord> {
+export async function updateProductUrlAdmin(
+  id: number,
+  payload: ProductUrlPayload,
+): Promise<ProductUrlRecord> {
   const { data } = await api.put(`/admin/product-urls/${id}`, {
     website_id: payload.websiteId,
     store_id: payload.storeId,
@@ -714,7 +1158,10 @@ export async function updateProductUrlAdmin(id: number, payload: ProductUrlPaylo
   return mapProductUrl(data);
 }
 
-export async function setProductUrlActiveAdmin(id: number, isActive: boolean): Promise<ProductUrlRecord> {
+export async function setProductUrlActiveAdmin(
+  id: number,
+  isActive: boolean,
+): Promise<ProductUrlRecord> {
   const { data } = await api.patch(`/admin/product-urls/${id}/active`, {
     is_active: isActive,
   });
@@ -730,7 +1177,9 @@ export async function getUsersAdmin(): Promise<AdminUserRecord[]> {
   return data.map(mapAdminUser);
 }
 
-export async function createUserAdmin(payload: AdminUserCreatePayload): Promise<AdminUserRecord> {
+export async function createUserAdmin(
+  payload: AdminUserCreatePayload,
+): Promise<AdminUserRecord> {
   const { data } = await api.post("/admin/users", {
     username: payload.username,
     password: payload.password,
@@ -741,17 +1190,26 @@ export async function createUserAdmin(payload: AdminUserCreatePayload): Promise<
   return mapAdminUser(data);
 }
 
-export async function updateUserAdmin(id: number, payload: AdminUserUpdatePayload): Promise<AdminUserRecord> {
+export async function updateUserAdmin(
+  id: number,
+  payload: AdminUserUpdatePayload,
+): Promise<AdminUserRecord> {
   const body: Record<string, unknown> = {};
-  if (Object.prototype.hasOwnProperty.call(payload, "fullName")) body.full_name = payload.fullName;
-  if (Object.prototype.hasOwnProperty.call(payload, "role")) body.role = payload.role;
-  if (Object.prototype.hasOwnProperty.call(payload, "isActive")) body.is_active = payload.isActive;
+  if (Object.prototype.hasOwnProperty.call(payload, "fullName"))
+    body.full_name = payload.fullName;
+  if (Object.prototype.hasOwnProperty.call(payload, "role"))
+    body.role = payload.role;
+  if (Object.prototype.hasOwnProperty.call(payload, "isActive"))
+    body.is_active = payload.isActive;
 
   const { data } = await api.put(`/admin/users/${id}`, body);
   return mapAdminUser(data);
 }
 
-export async function setUserActiveAdmin(id: number, isActive: boolean): Promise<AdminUserRecord> {
+export async function setUserActiveAdmin(
+  id: number,
+  isActive: boolean,
+): Promise<AdminUserRecord> {
   const { data } = await api.patch(`/admin/users/${id}/active`, {
     is_active: isActive,
   });
@@ -760,4 +1218,19 @@ export async function setUserActiveAdmin(id: number, isActive: boolean): Promise
 
 export async function deleteUserAdmin(id: number): Promise<void> {
   await api.delete(`/admin/users/${id}`);
+}
+
+export interface Country {
+  name: string;
+  alpha2: string;
+  alpha3: string;
+}
+
+export async function getCountriesAdmin(): Promise<Country[]> {
+  const { data } = await api.get("/admin/countries");
+  return (data || []).map((item: any) => ({
+    name: String(item.name || ""),
+    alpha2: String(item.alpha2 || ""),
+    alpha3: String(item.alpha3 || ""),
+  }));
 }

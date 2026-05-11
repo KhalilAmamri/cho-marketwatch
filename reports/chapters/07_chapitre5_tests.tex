@@ -1,0 +1,82 @@
+\chapter{Tests et validation}
+
+\section{Introduction}
+Ce chapitre presente la strategie de validation adoptee pour verifier la fiabilite fonctionnelle et technique de \ProjectName{}.
+
+\section{Strategie de test}
+La validation a ete construite selon plusieurs niveaux :
+\begin{itemize}[leftmargin=1.2cm]
+	\item \textbf{Tests de donnees} : verification de la coherence des insertions ETL.
+	\item \textbf{Tests API} : verification des routes, formats de reponse et controles d'acces.
+	\item \textbf{Tests UI} : verification des parcours utilisateurs et du rendu des pages.
+	\item \textbf{Tests operationnels} : suivi des echecs de scraping et de la qualite de collecte.
+\end{itemize}
+
+\section{Jeu de test et environnement}
+Les tests sont realises sur le meme environnement technique que l'exploitation : PostgreSQL, backend FastAPI, frontend React/Vite, avec des donnees historiques importees et des cycles de scraping/ETL executes regulierement.
+
+\figureplaceholder{Capture de l'environnement de test (API docs + dashboard + base)}{Environnement utilise pour la validation}
+
+\section{Scenarios de test fonctionnels}
+\begin{longtable}{p{0.8cm}p{5.0cm}p{4.1cm}p{4.1cm}}
+\caption{Exemples de scenarios de test fonctionnels}\label{tab:tests-fonctionnels}\\
+\toprule
+\textbf{ID} & \textbf{Scenario} & \textbf{Resultat attendu} & \textbf{Statut} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{ID} & \textbf{Scenario} & \textbf{Resultat attendu} & \textbf{Statut} \\
+\midrule
+\endhead
+T1 & Connexion utilisateur valide & Token genere et acces dashboard & Valide \\
+T2 & Connexion utilisateur inactif & Refus d'acces avec message d'erreur & Valide \\
+T3 & Acces user a /admin/* & Redirection vers /prices & Valide \\
+T4 & Consultation Prices Explorer & Affichage table + filtres + liens source & Valide \\
+T5 & Consultation Price Trends & Affichage serie temporelle hebdomadaire & Valide \\
+T6 & Creation brand/category/range & Ajout dans catalogue master data & Valide \\
+T7 & Activation/desactivation URL & Changement d'etat visible en admin & Valide \\
+T8 & Retail Presence par pays & Matrice de couverture correcte & Valide \\
+T9 & Operational Visibility & Liste des echecs avec metadonnees & Valide \\
+\bottomrule
+\end{longtable}
+
+\section{Scenarios de validation technique}
+\begin{longtable}{p{0.8cm}p{5.2cm}p{4.0cm}p{4.0cm}}
+\caption{Validation technique du pipeline}\label{tab:tests-techniques}\\
+\toprule
+\textbf{ID} & \textbf{Scenario technique} & \textbf{Controle} & \textbf{Statut} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{ID} & \textbf{Scenario technique} & \textbf{Controle} & \textbf{Statut} \\
+\midrule
+\endhead
+TT1 & Prix nul ou negatif en entree & Rejet ETL + statut failed & Valide \\
+TT2 & Parser non defini pour un site & Erreur explicite en raw\_staging & Valide \\
+TT3 & Conversion devise sans taux applicable & Prix EUR = null (pas de blocage) & Valide \\
+TT4 & Synchronisation API-frontend & Mapping des champs snake\_case/camelCase & Valide \\
+\bottomrule
+\end{longtable}
+
+\section{Resultats obtenus}
+La campagne de validation montre que :
+\begin{itemize}[leftmargin=1.2cm]
+	\item les parcours utilisateur principaux sont stables ;
+	\item la securisation par role est fonctionnelle ;
+	\item la chaine de donnees gere correctement les cas invalides ;
+	\item les ecrans admin offrent une meilleure gouvernance du perimetre de collecte.
+\end{itemize}
+
+\figureplaceholder{Dashboard de tests : indicateurs de succes/erreur}{Synthese visuelle des resultats de validation}
+
+\section{Limites observees}
+Quelques limites restent a traiter dans une version future :
+\begin{itemize}[leftmargin=1.2cm]
+	\item variabilite possible des structures HTML des sites cibles ;
+	\item besoin de tests automatiques plus exhaustifs (CI/CD).
+\end{itemize}
+
+\section{Conclusion}
+La validation confirme que la solution est exploitable dans un contexte reel et apporte un gain concret en qualite de suivi et en vitesse d'analyse.
+
+\clearpage

@@ -2,7 +2,6 @@ import sys
 from etl.run_etl import run_etl
 from etl.exchange_rates_etl import fetch_and_store_exchange_rates
 from scrapers.scraper_manager import run_all_scrapers
-from forecasting.model import run_random_forest_forecasts
 
 if __name__ == "__main__":
     print("=" * 60)
@@ -17,9 +16,6 @@ if __name__ == "__main__":
 
     print("\n🔄 Starting ETL Processing...")
     run_etl()
-
-    print("\n🔄 Generating Forecasts (Random Forest Model)...")
-    run_random_forest_forecasts(horizon_weeks=3)
 
     print("\n" + "=" * 60)
     print("✅ All tasks completed!")
