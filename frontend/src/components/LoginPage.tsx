@@ -161,11 +161,11 @@ export function LoginPage() {
             </Button>
           </form>
 
-          <div className="mt-8 p-4 rounded-xl bg-muted/50 border border-border/50">
+          {/* <div className="mt-8 p-4 rounded-xl bg-muted/50 border border-border/50">
             <p className="text-[11px] text-muted-foreground text-center font-medium">
               Default account on a freshly initialized database: <span className="text-foreground font-semibold">admin/admin123</span>
             </p>
-          </div>
+          </div> */}
         </motion.div>
       </div>
     </div>
