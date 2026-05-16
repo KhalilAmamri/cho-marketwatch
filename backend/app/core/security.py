@@ -89,9 +89,10 @@ def get_current_user(payload: dict = Depends(get_token_payload)) -> dict:
             if user_id is not None:
                 cur.execute(
                     """
-                    SELECT id, username, full_name, role, is_active
-                    FROM users
-                    WHERE id = %s
+                    SELECT u.id, u.username, u.full_name, r.name AS role, u.is_active
+                    FROM users u
+                    JOIN roles r ON u.role_id = r.id
+                    WHERE u.id = %s
                     LIMIT 1
                     """,
                     (user_id,),
@@ -99,9 +100,10 @@ def get_current_user(payload: dict = Depends(get_token_payload)) -> dict:
             else:
                 cur.execute(
                     """
-                    SELECT id, username, full_name, role, is_active
-                    FROM users
-                    WHERE username = %s
+                    SELECT u.id, u.username, u.full_name, r.name AS role, u.is_active
+                    FROM users u
+                    JOIN roles r ON u.role_id = r.id
+                    WHERE u.username = %s
                     LIMIT 1
                     """,
                     (username,),

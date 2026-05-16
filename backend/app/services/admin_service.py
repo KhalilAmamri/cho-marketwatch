@@ -202,9 +202,10 @@ def _normalize_store_payload(payload: dict) -> tuple[int, str, str | None]:
 def _get_user_row(cur, user_id: int) -> dict:
     cur.execute(
         """
-        SELECT id, username, full_name, role, is_active, created_at, last_login
-        FROM users
-        WHERE id = %s
+        SELECT u.id, u.username, u.full_name, r.name AS role, u.is_active, u.created_at, u.last_login
+        FROM users u
+        JOIN roles r ON u.role_id = r.id
+        WHERE u.id = %s
         """,
         (user_id,),
     )
@@ -214,8 +215,27 @@ def _get_user_row(cur, user_id: int) -> dict:
     return row
 
 
+def _resolve_role_id(cur, role_name: str) -> int:
+    normalized = str(role_name or "").strip().lower()
+    if not normalized:
+        raise ValueError("Role is required")
+
+    cur.execute("SELECT id FROM roles WHERE name = %s", (normalized,))
+    row = cur.fetchone()
+    if not row:
+        raise ValueError(f"Unknown role: {normalized}")
+    return int(row["id"])
+
+
 def _ensure_remaining_active_admin(cur):
-    cur.execute("SELECT COUNT(*) AS total FROM users WHERE role = 'admin' AND is_active = TRUE")
+    cur.execute(
+        """
+        SELECT COUNT(*) AS total
+        FROM users u
+        JOIN roles r ON u.role_id = r.id
+        WHERE r.name = 'admin' AND u.is_active = TRUE
+        """
+    )
     row = cur.fetchone()
     if int(row["total"]) <= 1:
         raise ValueError("At least one active admin user must remain")
@@ -839,9 +859,10 @@ def list_users() -> list[dict]:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 """
-                SELECT id, username, full_name, role, is_active, created_at, last_login
-                FROM users
-                ORDER BY id
+                SELECT u.id, u.username, u.full_name, r.name AS role, u.is_active, u.created_at, u.last_login
+                FROM users u
+                JOIN roles r ON u.role_id = r.id
+                ORDER BY u.id
                 """
             )
             return cur.fetchall()
@@ -853,9 +874,10 @@ def create_user(payload: dict) -> dict:
     with get_connection() as conn:
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                role_id = _resolve_role_id(cur, payload.get("role", "user"))
                 cur.execute(
                     """
-                    INSERT INTO users (username, password_hash, full_name, role, is_active)
+                    INSERT INTO users (username, password_hash, full_name, role_id, is_active)
                     VALUES (%s, %s, %s, %s, %s)
                     RETURNING id
                     """,
@@ -863,7 +885,7 @@ def create_user(payload: dict) -> dict:
                         payload["username"],
                         password_hash,
                         payload.get("full_name"),
-                        payload.get("role", "user"),
+                        role_id,
                         payload.get("is_active", True),
                     ),
                 )
@@ -882,9 +904,10 @@ def update_user(user_id: int, updates: dict, current_user_id: int) -> dict:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
                     """
-                    SELECT id, full_name, role, is_active
-                    FROM users
-                    WHERE id = %s
+                    SELECT u.id, u.full_name, u.role_id, r.name AS role, u.is_active
+                    FROM users u
+                    JOIN roles r ON u.role_id = r.id
+                    WHERE u.id = %s
                     FOR UPDATE
                     """,
                     (user_id,),
@@ -896,6 +919,7 @@ def update_user(user_id: int, updates: dict, current_user_id: int) -> dict:
                 next_full_name = updates.get("full_name", existing["full_name"])
                 next_role = updates.get("role", existing["role"])
                 next_is_active = updates.get("is_active", existing["is_active"])
+                next_role_id = _resolve_role_id(cur, next_role)
 
                 if user_id == current_user_id:
                     if next_role != "admin":
@@ -910,12 +934,12 @@ def update_user(user_id: int, updates: dict, current_user_id: int) -> dict:
                     """
                     UPDATE users
                     SET full_name = %s,
-                        role = %s,
+                        role_id = %s,
                         is_active = %s
                     WHERE id = %s
                     RETURNING id
                     """,
-                    (next_full_name, next_role, next_is_active, user_id),
+                    (next_full_name, next_role_id, next_is_active, user_id),
                 )
                 updated = cur.fetchone()
                 if not updated:
@@ -933,9 +957,10 @@ def set_user_active(user_id: int, is_active: bool, current_user_id: int) -> dict
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 """
-                SELECT id, role, is_active
-                FROM users
-                WHERE id = %s
+                SELECT u.id, r.name AS role, u.is_active
+                FROM users u
+                JOIN roles r ON u.role_id = r.id
+                WHERE u.id = %s
                 FOR UPDATE
                 """,
                 (user_id,),
@@ -972,9 +997,10 @@ def delete_user(user_id: int, current_user_id: int) -> None:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 """
-                SELECT id, role, is_active
-                FROM users
-                WHERE id = %s
+                SELECT u.id, r.name AS role, u.is_active
+                FROM users u
+                JOIN roles r ON u.role_id = r.id
+                WHERE u.id = %s
                 FOR UPDATE
                 """,
                 (user_id,),

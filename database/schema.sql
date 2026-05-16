@@ -160,13 +160,24 @@ CREATE TABLE exchange_rates (
     UNIQUE(currency, date)
 );
 
--- 15. USERS
+-- 15. ROLES
+CREATE TABLE roles (
+    id         SERIAL PRIMARY KEY,
+    name       VARCHAR(50) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Seed default roles with stable IDs.
+INSERT INTO roles (id, name) VALUES (1, 'admin'), (2, 'user');
+SELECT setval(pg_get_serial_sequence('roles', 'id'), (SELECT MAX(id) FROM roles));
+
+-- 16. USERS
 CREATE TABLE users (
     id            SERIAL PRIMARY KEY,
     username      VARCHAR(100) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     full_name     VARCHAR(200),
-    role          VARCHAR(20)  NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user')),
+    role_id       INTEGER      NOT NULL DEFAULT 2 REFERENCES roles(id) ON DELETE RESTRICT,
     is_active     BOOLEAN DEFAULT TRUE,
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_login    TIMESTAMP
@@ -174,12 +185,12 @@ CREATE TABLE users (
 
 -- Default admin user (password: admin123 — change immediately after first login)
 -- password_hash is bcrypt of 'admin123'
-INSERT INTO users (username, password_hash, full_name, role)
+INSERT INTO users (username, password_hash, full_name, role_id)
 VALUES (
     'admin',
     '$2b$12$kQGdQI8DBoVUyhj3JsZXCu5BubXPBv60bHb6cpoI/2A71GF.rhgyS',
     'System Administrator',
-    'admin'
+    1
 );
 
 
@@ -214,7 +225,7 @@ CREATE INDEX idx_variants_packaging       ON product_variants(packaging_id);
 CREATE INDEX idx_categories               ON categories(category_name);
 
 CREATE INDEX idx_users_username           ON users(username);
-CREATE INDEX idx_users_role               ON users(role);
+CREATE INDEX idx_users_role_id            ON users(role_id);
 
 -- =============================================================================
 -- END OF SCHEMA

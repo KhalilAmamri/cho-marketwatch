@@ -15,8 +15,9 @@ def login(payload: LoginRequest):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, username, password_hash, full_name, role, is_active
-                FROM users
+                SELECT u.id, u.username, u.password_hash, u.full_name, r.name AS role, u.is_active
+                FROM users u
+                JOIN roles r ON u.role_id = r.id
                 WHERE username = %s
                 LIMIT 1
                 """,
