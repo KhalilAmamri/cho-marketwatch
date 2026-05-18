@@ -162,6 +162,20 @@ export interface MarketOverviewResponse {
   storePresence: StorePresenceSlice[];
 }
 
+export interface MarketChangeRow {
+  productVariantId: number;
+  product: string;
+  thisWeekUnitPriceEur: number | null;
+  lastWeekUnitPriceEur: number | null;
+  deltaUnitPriceEur: number | null;
+  deltaPct: number | null;
+  hasDiscount: boolean;
+  screenshotPath: string | null;
+  sourceUrl: string | null;
+  exampleStore: string | null;
+  exampleCountry: string | null;
+}
+
 export async function getStoreUniverse(options?: {
   website?: string;
   country?: string;
@@ -954,6 +968,52 @@ export async function getMarketOverview(options: {
       records: row.records,
     })),
   };
+}
+
+export async function getMarketChanges(options: {
+  weekStart: string;
+  previousWeekStart?: string;
+  fxBasisWeekStart?: string;
+  website?: string;
+  country?: string;
+  store?: string;
+  limit?: number;
+}): Promise<MarketChangeRow[]> {
+  const { data } = await api.get("/prices/market-changes", {
+    params: {
+      week_start: options.weekStart,
+      previous_week_start: options.previousWeekStart || undefined,
+      fx_basis_week_start: options.fxBasisWeekStart || undefined,
+      website: options.website || undefined,
+      country: options.country || undefined,
+      store: options.store || undefined,
+      limit: options.limit ?? 15,
+    },
+  });
+
+  return (data || []).map((row: any) => ({
+    productVariantId: row.product_variant_id,
+    product: row.product,
+    thisWeekUnitPriceEur:
+      typeof row.this_week_unit_price_eur === "number"
+        ? row.this_week_unit_price_eur
+        : row.this_week_unit_price_eur ?? null,
+    lastWeekUnitPriceEur:
+      typeof row.last_week_unit_price_eur === "number"
+        ? row.last_week_unit_price_eur
+        : row.last_week_unit_price_eur ?? null,
+    deltaUnitPriceEur:
+      typeof row.delta_unit_price_eur === "number"
+        ? row.delta_unit_price_eur
+        : row.delta_unit_price_eur ?? null,
+    deltaPct:
+      typeof row.delta_pct === "number" ? row.delta_pct : row.delta_pct ?? null,
+    hasDiscount: Boolean(row.has_discount),
+    screenshotPath: row.screenshot_path ?? null,
+    sourceUrl: row.source_url ?? null,
+    exampleStore: row.example_store ?? null,
+    exampleCountry: row.example_country ?? null,
+  }));
 }
 
 export async function getAdminLookups(): Promise<AdminLookups> {

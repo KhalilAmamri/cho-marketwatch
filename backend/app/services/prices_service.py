@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from typing import Literal
 from psycopg2.extras import RealDictCursor
 
@@ -1021,6 +1021,226 @@ def get_market_overview(
                 "store_rankings": store_rankings,
                 "store_presence": presence,
             }
+
+
+def get_market_changes(
+    week_start: date,
+    previous_week_start: date | None = None,
+    fx_basis_week_start: date | None = None,
+    website: str | None = None,
+    country: str | None = None,
+    store: str | None = None,
+    limit: int = 15,
+):
+    """Return products whose unit price (EUR/L) changed WoW.
+
+    Important: the Market Context Avg KPI is computed over store-level rows
+    (product × website × store). To explain that movement, we detect changes
+    at the same granularity and then pick the biggest store-level change per
+    product.
+    """
+
+    if previous_week_start is None:
+        previous_week_start = week_start - timedelta(days=7)
+
+    filters: list[str] = []
+    params: list[object] = []
+
+    if website:
+        filters.append("w.site_name = %s")
+        params.append(website)
+
+    if country:
+        filters.append("w.country = %s")
+        params.append(country)
+
+    if store:
+        filters.append(f"({STORE_LABEL_SQL}) = %s")
+        params.append(store)
+
+    where_tail = (" AND " + " AND ".join(filters)) if filters else ""
+
+    fx_date_expr = "%s" if fx_basis_week_start else "ws.week_start"
+    fx_hist_join = f"""
+    LEFT JOIN LATERAL (
+        SELECT rate_to_eur
+        FROM exchange_rates
+        WHERE currency = ws.currency
+          AND date <= {fx_date_expr}
+        ORDER BY date DESC
+        LIMIT 1
+    ) fx_hist ON TRUE
+    """
+
+    unit_price_eur_sql = _unit_price_sql(PRICE_EUR_SQL)
+    query = f"""
+    WITH current_rows AS (
+        SELECT
+            ws.product_variant_id,
+            ws.website_id,
+            ws.store_id,
+            ({unit_price_eur_sql})::NUMERIC AS unit_price_eur
+        FROM weekly_price_summary ws
+        JOIN websites w ON ws.website_id = w.id
+        LEFT JOIN stores s ON ws.store_id = s.id
+        JOIN product_variants pv ON ws.product_variant_id = pv.id
+        JOIN formats f ON pv.format_id = f.id
+        {fx_hist_join}
+        WHERE ws.week_start = %s
+          AND ws.currency IS NOT NULL
+          AND ws.data_status IN ('OK', 'PARTIAL')
+          AND ({unit_price_eur_sql}) IS NOT NULL
+          {where_tail}
+    ),
+    previous_rows AS (
+        SELECT
+            ws.product_variant_id,
+            ws.website_id,
+            ws.store_id,
+            ({unit_price_eur_sql})::NUMERIC AS unit_price_eur
+        FROM weekly_price_summary ws
+        JOIN websites w ON ws.website_id = w.id
+        LEFT JOIN stores s ON ws.store_id = s.id
+        JOIN product_variants pv ON ws.product_variant_id = pv.id
+        JOIN formats f ON pv.format_id = f.id
+        {fx_hist_join}
+        WHERE ws.week_start = %s
+          AND ws.currency IS NOT NULL
+          AND ws.data_status IN ('OK', 'PARTIAL')
+          AND ({unit_price_eur_sql}) IS NOT NULL
+          {where_tail}
+    ),
+    changed_rows AS (
+        SELECT
+            c.product_variant_id,
+            c.website_id,
+            c.store_id,
+            c.unit_price_eur AS this_week_unit_price_eur,
+            p.unit_price_eur AS last_week_unit_price_eur,
+            (c.unit_price_eur - p.unit_price_eur) AS delta_unit_price_eur,
+            CASE
+                WHEN p.unit_price_eur IS NULL OR p.unit_price_eur = 0 THEN NULL
+                ELSE ((c.unit_price_eur - p.unit_price_eur) / p.unit_price_eur) * 100
+            END AS delta_pct
+        FROM current_rows c
+        JOIN previous_rows p
+          ON p.product_variant_id = c.product_variant_id
+         AND p.website_id = c.website_id
+         AND (p.store_id IS NOT DISTINCT FROM c.store_id)
+        WHERE c.unit_price_eur IS NOT NULL
+          AND p.unit_price_eur IS NOT NULL
+          AND c.unit_price_eur <> p.unit_price_eur
+    ),
+    ranked AS (
+        SELECT
+            cr.*,
+            ROW_NUMBER() OVER (
+                PARTITION BY cr.product_variant_id
+                ORDER BY ABS(cr.delta_pct) DESC NULLS LAST, ABS(cr.delta_unit_price_eur) DESC NULLS LAST
+            ) AS rn
+        FROM changed_rows cr
+    )
+    SELECT
+        m.product_variant_id,
+        {PRODUCT_LABEL_SQL} AS product,
+        m.this_week_unit_price_eur,
+        m.last_week_unit_price_eur,
+        m.delta_unit_price_eur,
+        m.delta_pct,
+        COALESCE(disc.has_discount, FALSE) AS has_discount,
+        ex.screenshot_path,
+        ex.source_url,
+        ex.example_store,
+        ex.example_country
+    FROM ranked m
+    JOIN product_variants pv ON pv.id = m.product_variant_id
+    JOIN products p ON pv.product_id = p.id
+    JOIN formats f ON pv.format_id = f.id
+    JOIN packagings pk ON pv.packaging_id = pk.id
+    LEFT JOIN brands b ON p.brand_id = b.id
+    LEFT JOIN categories c ON p.category_id = c.id
+    LEFT JOIN ranges r ON p.range_id = r.id
+    LEFT JOIN LATERAL (
+        SELECT
+            sp.screenshot_path,
+            pu.url AS source_url,
+            ({STORE_LABEL_SQL}) AS example_store,
+            w.country AS example_country
+        FROM scraped_prices sp
+        JOIN websites w ON sp.website_id = w.id
+        LEFT JOIN stores s ON sp.store_id = s.id
+        LEFT JOIN LATERAL (
+            SELECT url
+            FROM product_urls pu
+            WHERE pu.website_id = sp.website_id
+              AND pu.product_variant_id = sp.product_variant_id
+              AND (pu.store_id IS NOT DISTINCT FROM sp.store_id)
+            ORDER BY pu.is_active DESC, pu.created_at DESC, pu.id DESC
+            LIMIT 1
+        ) pu ON TRUE
+        WHERE sp.product_variant_id = m.product_variant_id
+          AND sp.website_id = m.website_id
+          AND (sp.store_id IS NOT DISTINCT FROM m.store_id)
+          AND sp.observed_at >= %s::date
+          AND sp.observed_at < (%s::date + INTERVAL '7 days')
+        ORDER BY (sp.is_discounted IS TRUE) DESC, sp.observed_at DESC, sp.id DESC
+        LIMIT 1
+    ) ex ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT EXISTS (
+            SELECT 1
+            FROM scraped_prices sp
+            WHERE sp.product_variant_id = m.product_variant_id
+              AND sp.website_id = m.website_id
+              AND (sp.store_id IS NOT DISTINCT FROM m.store_id)
+              AND sp.observed_at >= %s::date
+              AND sp.observed_at < (%s::date + INTERVAL '7 days')
+              AND sp.is_discounted = TRUE
+        ) AS has_discount
+    ) disc ON TRUE
+    WHERE m.rn = 1
+    ORDER BY ABS(m.delta_pct) DESC NULLS LAST, ABS(m.delta_unit_price_eur) DESC NULLS LAST, product
+    LIMIT %s
+    """
+
+    query_params: list[object] = []
+    if fx_basis_week_start:
+        query_params.append(fx_basis_week_start)
+    query_params.append(week_start)
+    query_params.extend(params)
+    if fx_basis_week_start:
+        query_params.append(fx_basis_week_start)
+    query_params.append(previous_week_start)
+    query_params.extend(params)
+
+    # screenshot-week window (ex + has_discount)
+    query_params.append(week_start)
+    query_params.append(week_start)
+    query_params.append(week_start)
+    query_params.append(week_start)
+
+    query_params.append(limit)
+
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(query, query_params)
+            rows = cur.fetchall()
+
+    # Normalize numeric types for JSON
+    normalized = []
+    for row in rows:
+        normalized.append(
+            {
+                **row,
+                "this_week_unit_price_eur": float(row["this_week_unit_price_eur"]) if row.get("this_week_unit_price_eur") is not None else None,
+                "last_week_unit_price_eur": float(row["last_week_unit_price_eur"]) if row.get("last_week_unit_price_eur") is not None else None,
+                "delta_unit_price_eur": float(row["delta_unit_price_eur"]) if row.get("delta_unit_price_eur") is not None else None,
+                "delta_pct": float(row["delta_pct"]) if row.get("delta_pct") is not None else None,
+                "has_discount": bool(row.get("has_discount")),
+            }
+        )
+
+    return normalized
 
 
 def get_available_weeks(

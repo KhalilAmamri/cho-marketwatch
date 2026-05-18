@@ -141,3 +141,17 @@ class MarketOverviewResponse(BaseModel):
     kpis: MarketOverviewKpis
     store_rankings: list[StoreUnitRankingRow]
     store_presence: list[StorePresenceSlice]
+
+
+class MarketChangeRow(BaseModel):
+    product_variant_id: int
+    product: str
+    this_week_unit_price_eur: float | None
+    last_week_unit_price_eur: float | None
+    delta_unit_price_eur: float | None
+    delta_pct: float | None
+    has_discount: bool
+    screenshot_path: str | None = None
+    source_url: str | None = None
+    example_store: str | None = None
+    example_country: str | None = None

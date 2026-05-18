@@ -6,6 +6,7 @@ import {
   CartesianGrid,
   Cell,
   Legend,
+  LabelList,
   Line,
   LineChart,
   Pie,
@@ -16,15 +17,19 @@ import {
 
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import {
   getFilters,
   getAvailableWeeks,
+  getMarketChanges,
   getMarketOverview,
   getPriceAnalysis,
   getSummary,
   getStoreUniverse,
   getTimeseries,
+  resolveStorageUrl,
+  type MarketChangeRow,
   type StorePresenceSlice,
   type StoreOption,
   type TimeseriesRow,
@@ -201,6 +206,7 @@ export default function PriceTrends() {
   const [marketCountry, setMarketCountry] = useState("all");
   const [marketStore, setMarketStore] = useState("all");
   const [marketWeekStart, setMarketWeekStart] = useState("");
+  const [marketChangesOpen, setMarketChangesOpen] = useState(false);
 
   const marketCountryFilter = marketCountry === "all" ? undefined : marketCountry;
   const marketStoreFilter = marketStore === "all" ? undefined : marketStore;
@@ -296,6 +302,30 @@ export default function PriceTrends() {
       direction: rounded > 0 ? "up" : rounded < 0 ? "down" : "flat",
     } as const;
   }, [marketOverview?.kpis?.avgUnitPriceEur, marketOverviewPrev?.kpis?.avgUnitPriceEur]);
+
+  const { data: marketChanges = [], isFetching: marketChangesLoading } = useQuery({
+    queryKey: [
+      "prices-market-changes",
+      marketCountryFilter || "all",
+      marketStoreFilter || "all",
+      marketWeekStart || "none",
+      marketPreviousWeekStart || "none",
+      `fx:${marketWeekStart || "none"}`,
+      `open:${marketChangesOpen ? "1" : "0"}`,
+    ],
+    queryFn: () =>
+      getMarketChanges({
+        country: marketCountryFilter,
+        store: marketStoreFilter,
+        weekStart: marketWeekStart,
+        previousWeekStart: marketPreviousWeekStart || undefined,
+        fxBasisWeekStart: marketWeekStart || undefined,
+        limit: 15,
+      }),
+    enabled: marketChangesOpen && Boolean(marketWeekStart) && Boolean(marketPreviousWeekStart),
+  });
+
+  const marketChangesRows = marketChanges as MarketChangeRow[];
 
   const marketStoreOptions = useMemo(() => {
     const stores = [
@@ -695,6 +725,23 @@ export default function PriceTrends() {
   ]);
 
   const deepBarData = useMemo(() => {
+    const discountByStore = new Map<string, number>();
+    for (const row of deepLastScrapedScopedRows) {
+      if (!row.store) continue;
+      if (row.dataStatus !== "OK" && row.dataStatus !== "PARTIAL") continue;
+      if (row.isDiscounted !== true) continue;
+      if (typeof row.basePrice !== "number" || !Number.isFinite(row.basePrice)) continue;
+      if (typeof row.price !== "number" || !Number.isFinite(row.price)) continue;
+      if (row.basePrice <= 0) continue;
+      if (row.basePrice <= row.price) continue;
+
+      const pct = ((row.basePrice - row.price) / row.basePrice) * 100;
+      if (!Number.isFinite(pct) || pct <= 0) continue;
+      const rounded = +pct.toFixed(1);
+      const prev = discountByStore.get(row.store);
+      discountByStore.set(row.store, prev === undefined ? rounded : Math.max(prev, rounded));
+    }
+
     const byStore = new Map<string, { store: string; price: number | null }>();
     for (const row of deepWeeklyAvailableRows) {
       if (!byStore.has(row.store)) {
@@ -703,13 +750,17 @@ export default function PriceTrends() {
     }
 
     return Array.from(byStore.values())
-      .map((item) => ({ store: item.store, price: item.price }))
+      .map((item) => ({
+        store: item.store,
+        price: item.price,
+        discountPct: discountByStore.get(item.store) ?? null,
+      }))
       .sort((a, b) => {
         if (a.price === null) return 1;
         if (b.price === null) return -1;
         return a.price - b.price;
       });
-  }, [deepWeeklyAvailableRows]);
+  }, [deepWeeklyAvailableRows, deepLastScrapedScopedRows]);
 
   const deepBarDomain = useMemo(() => {
     const values = deepBarData.map((item) => item.price).filter((v): v is number => typeof v === "number");
@@ -861,23 +912,6 @@ export default function PriceTrends() {
             <KpiCard accent="teal" label="Stores" value={marketOverview ? String(marketOverview.kpis.stores) : "-"} />
             <KpiCard accent="teal" label="Countries" value={marketOverview ? String(marketOverview.kpis.countries) : "-"} />
             <KpiCard
-              label="Avg Discount"
-              value={
-                marketOverview
-                  ? marketOverview.kpis.avgDiscountPct === null
-                    ? (
-                        <>
-                          <span className="text-lg font-semibold text-foreground tabular-nums leading-none tracking-tight">0%</span>
-                          <span className="mt-1 block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[10px] font-normal leading-tight text-muted-foreground">
-                            — No promotions
-                          </span>
-                        </>
-                      )
-                    : <span className="text-lg font-semibold text-foreground tabular-nums">{formatPercent(marketOverview.kpis.avgDiscountPct)}</span>
-                  : "-"
-              }
-            />
-            <KpiCard
               accent="gold"
               label={`Avg (${marketOverview?.kpis.unitLabel || "EUR/L"})`}
               value={
@@ -909,6 +943,17 @@ export default function PriceTrends() {
                           <span className="ml-1 text-muted-foreground">vs last week</span>
                         </span>
                       ) : null}
+
+                      {marketPreviousWeekStart ? (
+                        <button
+                          type="button"
+                          onClick={() => setMarketChangesOpen((prev) => !prev)}
+                          className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+                        >
+                          {marketChangesOpen ? "Hide drivers" : "See drivers"}
+                          <span className="text-[10px]">{marketChangesOpen ? "▲" : "▼"}</span>
+                        </button>
+                      ) : null}
                   </>
                 ) : (
                   "-"
@@ -929,7 +974,149 @@ export default function PriceTrends() {
                 <span className="text-[hsl(var(--cho-teal))]">{formatNumber(marketOverview.kpis.minUnitPriceEur)}</span>
               ) : "-"}
             />
+            <KpiCard
+              accent="gold"
+              label="Avg Discount"
+              value={
+                marketOverview
+                  ? marketOverview.kpis.avgDiscountPct === null
+                    ? (
+                        <div className="flex flex-col">
+                          <span className="text-lg font-semibold text-foreground tabular-nums leading-none tracking-tight">0%</span>
+                          <span className="mt-1 block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[10px] font-normal leading-tight text-muted-foreground">
+                            — No promotions
+                          </span>
+                        </div>
+                      )
+                    : (
+                        <span className="text-lg font-bold text-[hsl(var(--cho-gold-dark))] tabular-nums">
+                          {formatPercent(marketOverview.kpis.avgDiscountPct)}
+                        </span>
+                      )
+                  : "-"
+              }
+            />
           </div>
+
+          {marketChangesOpen ? (
+            <div className="mb-3 rounded-xl border border-border/60 bg-background/80 p-2">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-border/30 pb-2">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-[hsl(var(--cho-gold))]" />
+                  <p className="text-xs font-semibold text-foreground">What moved Avg (EUR/L)?</p>
+                  {marketWeekStart && marketPreviousWeekStart ? (
+                    <p className="text-[11px] text-muted-foreground">
+                      {formatWeekLabel(marketWeekStart)} vs {formatWeekLabel(marketPreviousWeekStart)}
+                    </p>
+                  ) : null}
+                </div>
+
+                <p className="text-[11px] text-muted-foreground">Top 15 by |% change|</p>
+              </div>
+
+              {marketChangesLoading ? (
+                <p className="px-2 py-6 text-sm text-muted-foreground">Loading changes…</p>
+              ) : !marketPreviousWeekStart ? (
+                <p className="px-2 py-6 text-sm text-muted-foreground">No previous week available for comparison.</p>
+              ) : marketChangesRows.length ? (
+                <Table className="w-full">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[44%]">Product</TableHead>
+                      <TableHead className="w-[28%]">This vs last week</TableHead>
+                      <TableHead className="w-[18%]">Δ%</TableHead>
+                      <TableHead className="w-[10%]">Screenshot</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {marketChangesRows.map((row) => {
+                      const deltaPct = typeof row.deltaPct === "number" ? row.deltaPct : null;
+                      const deltaDir = deltaPct === null ? "flat" : deltaPct > 0 ? "up" : deltaPct < 0 ? "down" : "flat";
+                      const screenshotUrl = resolveStorageUrl(row.screenshotPath);
+
+                      return (
+                        <TableRow key={row.productVariantId}>
+                          <TableCell>
+                            <div className="flex flex-col">
+                              {row.sourceUrl ? (
+                                <a
+                                  href={row.sourceUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="font-medium text-foreground hover:underline"
+                                >
+                                  {row.product}
+                                </a>
+                              ) : (
+                                <span className="font-medium text-foreground">{row.product}</span>
+                              )}
+                              <span className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                                {row.exampleStore ? <span>{row.exampleStore}</span> : null}
+                                {row.exampleCountry ? <span>• {row.exampleCountry}</span> : null}
+                                {row.hasDiscount ? (
+                                  <span className="rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] font-semibold text-foreground">
+                                    Discount
+                                  </span>
+                                ) : null}
+                              </span>
+                            </div>
+                          </TableCell>
+
+                          <TableCell>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-mono text-sm tabular-nums text-foreground">
+                                {formatNumber(row.thisWeekUnitPriceEur)}
+                              </span>
+                              <span className="text-[11px] text-muted-foreground">
+                                was {formatNumber(row.lastWeekUnitPriceEur)}
+                              </span>
+                            </div>
+                          </TableCell>
+
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={cn(
+                                  "text-sm leading-none",
+                                  deltaDir === "up"
+                                    ? "text-[hsl(var(--cho-teal))]"
+                                    : deltaDir === "down"
+                                      ? "text-red-500"
+                                      : "text-muted-foreground",
+                                )}
+                              >
+                                {deltaDir === "up" ? "▲" : deltaDir === "down" ? "▼" : "—"}
+                              </span>
+                              <span className="font-mono text-sm tabular-nums text-foreground">
+                                {deltaPct === null ? "-" : `${deltaPct > 0 ? "+" : ""}${deltaPct.toFixed(1)}%`}
+                              </span>
+                            </div>
+                          </TableCell>
+
+                          <TableCell>
+                            {screenshotUrl ? (
+                              <a href={screenshotUrl} target="_blank" rel="noreferrer" className="block">
+                                <img
+                                  src={screenshotUrl}
+                                  alt={`Screenshot for ${row.product}`}
+                                  className="h-10 w-16 rounded-md border border-border/60 object-cover"
+                                  loading="lazy"
+                                />
+                              </a>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              ) : (
+                <p className="px-2 py-6 text-sm text-muted-foreground">No products changed vs the previous week for these filters.</p>
+              )}
+            </div>
+          ) : null}
 
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             <div className="rounded-xl border border-border/60 bg-background/80 p-2">
@@ -1218,7 +1405,7 @@ export default function PriceTrends() {
               </div>
 
               <ChartContainer config={{ price: { label: "EUR" } }} className="aspect-auto h-[300px] w-full">
-                <BarChart data={deepBarData} margin={{ top: 6, right: 8, left: 6, bottom: 26 }}>
+                <BarChart data={deepBarData} margin={{ top: 18, right: 8, left: 6, bottom: 26 }}>
                   <defs>
                     <linearGradient id="deepPriceGradient" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="hsl(var(--cho-teal-light))" />
@@ -1252,10 +1439,18 @@ export default function PriceTrends() {
                           const numeric = typeof value === "number" ? value : null;
                           const store = String(item?.payload?.store || "");
                           const label = formatStoreLabel(store, deepStoreCountryMap[store]);
+                          const discountPct = typeof item?.payload?.discountPct === "number" ? item.payload.discountPct : null;
                           return (
                             <div className="flex w-full items-center justify-between gap-6">
-                              <span className="text-muted-foreground">{label}</span>
-                              <span className="font-mono font-medium tabular-nums text-foreground">
+                              <div className="flex flex-col">
+                                <span className="text-muted-foreground">{label}</span>
+                                {discountPct !== null ? (
+                                  <span className="mt-0.5 text-[11px] font-medium text-[hsl(var(--cho-gold-dark))]">
+                                    Discount: -{discountPct.toFixed(1)}%
+                                  </span>
+                                ) : null}
+                              </div>
+                              <span className="font-mono font-medium tabular-nums text-foreground whitespace-nowrap">
                                 {numeric === null ? "-" : `${formatNumber(numeric)} EUR`}
                               </span>
                             </div>
@@ -1268,7 +1463,18 @@ export default function PriceTrends() {
                     dataKey="price"
                     fill="url(#deepPriceGradient)"
                     radius={[6, 6, 0, 0]}
-                  />
+                  >
+                    <LabelList
+                      dataKey="discountPct"
+                      position="top"
+                      formatter={(value: any) => {
+                        const v = typeof value === "number" ? value : null;
+                        if (v === null || !Number.isFinite(v) || v <= 0) return "";
+                        return `-${v.toFixed(1)}%`;
+                      }}
+                      className="fill-[hsl(var(--cho-gold-dark))] text-[10px] font-semibold"
+                    />
+                  </Bar>
                 </BarChart>
               </ChartContainer>
 

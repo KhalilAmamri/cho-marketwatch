@@ -5,6 +5,7 @@ from fastapi import APIRouter, Query
 from app.schemas.prices import (
     DashboardKpis,
     FiltersResponse,
+    MarketChangeRow,
     MarketOverviewResponse,
     PriceAnalysisResponse,
     PricePoint,
@@ -16,6 +17,7 @@ from app.services.prices_service import (
     get_kpis,
     get_available_weeks,
     get_store_universe,
+    get_market_changes,
     get_market_overview,
     get_price_analysis,
     get_summary,
@@ -102,6 +104,27 @@ def prices_market_overview(
         store=store,
         week_start=week_start,
         fx_basis_week_start=fx_basis_week_start,
+    )
+
+
+@router.get("/market-changes", response_model=list[MarketChangeRow])
+def prices_market_changes(
+    week_start: date = Query(...),
+    previous_week_start: date | None = Query(default=None),
+    fx_basis_week_start: date | None = Query(default=None),
+    website: str | None = Query(default=None),
+    country: str | None = Query(default=None),
+    store: str | None = Query(default=None),
+    limit: int = Query(default=15, ge=1, le=200),
+):
+    return get_market_changes(
+        week_start=week_start,
+        previous_week_start=previous_week_start,
+        fx_basis_week_start=fx_basis_week_start,
+        website=website,
+        country=country,
+        store=store,
+        limit=limit,
     )
 
 
